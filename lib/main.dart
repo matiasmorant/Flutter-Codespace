@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:get/get.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:hive/hive.dart';
 import 'package:path_provider/path_provider.dart';
@@ -9,137 +10,151 @@ void main() async {
   Hive.init(dir.path);
   await Hive.openBox('entries');
   await Hive.openBox('settings');
+
+  // Initialize our controllers so they’re available app-wide.
+  Get.put(SettingsController());
+  Get.put(EntriesController());
   runApp(MyApp());
 }
 
-class MyApp extends StatefulWidget {
-  @override
-  _MyAppState createState() => _MyAppState();
-}
-
-class _MyAppState extends State<MyApp> {
-  final Box settingsBox = Hive.box('settings');
-
+class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    bool isDarkMode = settingsBox.get('darkMode', defaultValue: false);
-    return MaterialApp(
-      theme: isDarkMode ? ThemeData.dark() : ThemeData.light(),
-      home: MainScreen(),
-    );
+    // Using Obx here to reactively change the theme.
+    return Obx(() {
+      final isDark = Get.find<SettingsController>().isDarkMode.value;
+      return GetMaterialApp(
+        title: 'GetX Hive Example',
+        theme: ThemeData.light(),
+        darkTheme: ThemeData.dark(),
+        themeMode: isDark ? ThemeMode.dark : ThemeMode.light,
+        home: MainScreen(),
+      );
+    });
   }
 }
 
-class MainScreen extends StatefulWidget {
+class SettingsController extends GetxController {
+  var isDarkMode = false.obs;
+  late Box settingsBox;
+
   @override
-  _MainScreenState createState() => _MainScreenState();
-}
-
-class _MainScreenState extends State<MainScreen> {
-  final Box box = Hive.box('entries');
-  final Box settingsBox = Hive.box('settings');
-
-  void addEntry() {
-    String name = 'Chemical Substance ${box.length + 1}';
-    box.add(name);
-    setState(() {});
-  }
-
-  void deleteEntry(int index) {
-    box.deleteAt(index);
-    setState(() {});
-  }
-
-  void renameEntry(int index, String newName) {
-    box.putAt(index, newName);
-    setState(() {});
+  void onInit() {
+    settingsBox = Hive.box('settings');
+    isDarkMode.value = settingsBox.get('darkMode', defaultValue: false);
+    super.onInit();
   }
 
   void toggleTheme() {
-    bool isDarkMode = settingsBox.get('darkMode', defaultValue: false);
-    settingsBox.put('darkMode', !isDarkMode);
-    setState(() {});
+    isDarkMode.value = !isDarkMode.value;
+    settingsBox.put('darkMode', isDarkMode.value);
   }
+}
+
+class EntriesController extends GetxController {
+  late Box entriesBox;
+  var entries = <String>[].obs;
 
   @override
+  void onInit() {
+    entriesBox = Hive.box('entries');
+    entries.assignAll(entriesBox.values.cast<String>().toList());
+    super.onInit();
+  }
+
+  void addEntry() {
+    String name = 'Chemical Substance ${entries.length + 1}';
+    entriesBox.add(name);
+    entries.add(name);
+  }
+
+  void deleteEntry(int index) {
+    entriesBox.deleteAt(index);
+    entries.removeAt(index);
+  }
+
+  void renameEntry(int index, String newName) {
+    entriesBox.putAt(index, newName);
+    entries[index] = newName;
+    entries.refresh();
+  }
+}
+
+class MainScreen extends StatelessWidget {
+  @override
   Widget build(BuildContext context) {
+    final entriesController = Get.find<EntriesController>();
+    final settingsController = Get.find<SettingsController>();
+
     return Scaffold(
       appBar: AppBar(
         title: Text('Entries'),
         actions: [
           IconButton(
             icon: Icon(Icons.settings),
-            onPressed: () => showDialog(
-              context: context,
-              builder: (context) => AlertDialog(
-                title: Text('Settings'),
-                content: SwitchListTile(
-                  title: Text('Dark Mode'),
-                  value: settingsBox.get('darkMode', defaultValue: false),
-                  onChanged: (value) {
-                    toggleTheme();
-                    Navigator.pop(context);
-                  },
+            onPressed: () {
+              // Use Get.defaultDialog to show the settings dialog.
+              Get.defaultDialog(
+                title: 'Settings',
+                content: Obx(
+                  () => SwitchListTile(
+                    title: Text('Dark Mode'),
+                    value: settingsController.isDarkMode.value,
+                    onChanged: (value) {
+                      settingsController.toggleTheme();
+                      Get.back();
+                    },
+                  ),
                 ),
-              ),
-            ),
+              );
+            },
           ),
         ],
       ),
-      body: ListView.builder(
-        itemCount: box.length,
-        itemBuilder: (context, index) {
-          return ListTile(
-            title: Text(box.getAt(index)),
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => DetailScreen(entry: box.getAt(index)),
-              ),
-            ),
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                IconButton(
-                  icon: Icon(Icons.edit),
-                  onPressed: () {
-                    TextEditingController controller = TextEditingController(text: box.getAt(index));
-                    showDialog(
-                      context: context,
-                      builder: (context) => AlertDialog(
-                        title: Text('Rename Entry'),
+      body: Obx(
+        () => ListView.builder(
+          itemCount: entriesController.entries.length,
+          itemBuilder: (context, index) {
+            return ListTile(
+              title: Text(entriesController.entries[index]),
+              onTap: () => Get.to(() =>
+                  DetailScreen(entry: entriesController.entries[index])),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    icon: Icon(Icons.edit),
+                    onPressed: () {
+                      TextEditingController controller = TextEditingController(
+                          text: entriesController.entries[index]);
+                      Get.defaultDialog(
+                        title: 'Rename Entry',
                         content: TextField(
                           controller: controller,
-                          decoration: InputDecoration(hintText: 'Enter new name'),
+                          decoration:
+                              InputDecoration(hintText: 'Enter new name'),
                         ),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.pop(context),
-                            child: Text('Cancel'),
-                          ),
-                          TextButton(
-                            onPressed: () {
-                              renameEntry(index, controller.text);
-                              Navigator.pop(context);
-                            },
-                            child: Text('Save'),
-                          ),
-                        ],
-                      ),
-                    );
-                  },
-                ),
-                IconButton(
-                  icon: Icon(Icons.delete),
-                  onPressed: () => deleteEntry(index),
-                ),
-              ],
-            ),
-          );
-        },
+                        textCancel: 'Cancel',
+                        textConfirm: 'Save',
+                        onConfirm: () {
+                          entriesController.renameEntry(index, controller.text);
+                          Get.back();
+                        },
+                      );
+                    },
+                  ),
+                  IconButton(
+                    icon: Icon(Icons.delete),
+                    onPressed: () => entriesController.deleteEntry(index),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: addEntry,
+        onPressed: entriesController.addEntry,
         child: Icon(Icons.add),
       ),
     );
@@ -158,17 +173,11 @@ class DetailScreen extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           ElevatedButton(
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => GraphScreen(title: 'Slider')),
-            ),
+            onPressed: () => Get.to(() => GraphScreen(title: 'Slider')),
             child: Text('Slider'),
           ),
           ElevatedButton(
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => GraphScreen(title: 'Kinematics')),
-            ),
+            onPressed: () => Get.to(() => GraphScreen(title: 'Kinematics')),
             child: Text('Kinematics'),
           ),
         ],
@@ -186,104 +195,112 @@ class GraphScreen extends StatefulWidget {
 }
 
 class _GraphScreenState extends State<GraphScreen> {
-  List<FlSpot> points = [FlSpot(1, 1), FlSpot(2, 2), FlSpot(3, 3)];
-
-  void _updatePoint(int index, FlSpot newSpot) {
-    setState(() {
-      points[index] = newSpot;
-    });
-  }
+  final GraphController graphController = Get.put(GraphController());
+  int draggedIndex = -1;
+  Offset? dragStart;
 
   @override
   Widget build(BuildContext context) {
-    int draggedindex=-1;
-    Offset? dragstart;
-    double minX = points.reduce((current, next) => next.x < current.x ? next : current).x;
-    double maxX = points.reduce((current, next) => next.x > current.x ? next : current).x;
-    double minY = points.reduce((current, next) => next.y < current.y ? next : current).y;
-    double maxY = points.reduce((current, next) => next.y > current.y ? next : current).y;
-
-    LineChartData linechartdata = LineChartData(
-      minX: minX,
-      maxX: maxX,
-      minY: minY,
-      maxY: maxY,
-      lineBarsData: [
-        LineChartBarData(
-          spots: points,
-          isCurved: true,
-          barWidth: 4,
-          color: Colors.blue,
-          belowBarData: BarAreaData(show: false),
-        ),
-      ],
-      lineTouchData: LineTouchData(
-        touchCallback: (FlTouchEvent event, LineTouchResponse? response) {
-          // ScaffoldMessenger.of(context).showSnackBar(
-          //     SnackBar(content: Text('Touched at x: ${event.localPosition?.dx}, y: ${event.localPosition?.dy}')),
-          // );
-          if (event is FlPanEndEvent) {
-            draggedindex=-1;
-          }
-          if (response != null && response.lineBarSpots != null && draggedindex<0) {
-            final spot = response.lineBarSpots!.first;
-            draggedindex = spot.spotIndex;
-            dragstart=event.localPosition;
-            print('selected: ${spot.x},${spot.y} (${dragstart?.dx},${dragstart?.dy})');
-          }
-        },
-        handleBuiltInTouches: true,
-      ),
-    );
-
     return Scaffold(
       appBar: AppBar(title: Text(widget.title)),
       body: GestureDetector(
         onPanUpdate: (details) {
-          // double minX = linechartdata.minX;
-          // double maxX = linechartdata.maxX;
-          // double minY = linechartdata.minY;
-          // double maxY = linechartdata.maxY;
-          // FlChartPainter painter = LineChartPainter(lineChartData, showingTooltipSpots: []);
-          // FlSpot bottomLeft = FlSpot(lineChartData.minX!, lineChartData.minY!);
-          // FlSpot topRight = FlSpot(lineChartData.maxX!, lineChartData.maxY!);
-
-          // Offset bottomLeftPx = painter.getPixelForValue(bottomLeft);
-          // Offset topRightPx = painter.getPixelForValue(topRight);
-
           RenderBox box = context.findRenderObject() as RenderBox;
           Offset localPosition = box.globalToLocal(details.globalPosition);
-          if (draggedindex>=0){
-            print('* ${(linechartdata.maxX-linechartdata.minX)/box.size.width},${(linechartdata.maxY-linechartdata.minY)/box.size.height} (${linechartdata.maxX} ${box.size.height})');
-            double x=points[draggedindex].x+(localPosition.dx-dragstart!.dx)*(linechartdata.maxX-linechartdata.minX)/box.size.width;
-            double y=points[draggedindex].y+(localPosition.dy-dragstart!.dy)*(linechartdata.maxY-linechartdata.minY)/box.size.height;
-            
-            print('${points[draggedindex].x},${points[draggedindex].y} -> $x,$y');
-            print('drag: ${localPosition?.dx},${localPosition?.dy} - ${dragstart!.dx},${dragstart!.dy} = ${localPosition.dx-dragstart!.dx},${localPosition.dy-dragstart!.dy}');
-
-            _updatePoint(draggedindex, FlSpot(x,y));
-            dragstart=localPosition;
+          if (draggedIndex >= 0 && dragStart != null) {
+            // Calculate chart boundaries dynamically from current points.
+            double minX = graphController.points
+                .reduce((curr, next) => next.x < curr.x ? next : curr)
+                .x;
+            double maxX = graphController.points
+                .reduce((curr, next) => next.x > curr.x ? next : curr)
+                .x;
+            double minY = graphController.points
+                .reduce((curr, next) => next.y < curr.y ? next : curr)
+                .y;
+            double maxY = graphController.points
+                .reduce((curr, next) => next.y > curr.y ? next : curr)
+                .y;
+            double dx = localPosition.dx - dragStart!.dx;
+            double dy = localPosition.dy - dragStart!.dy;
+            double newX = graphController.points[draggedIndex].x +
+                dx * (maxX - minX) / box.size.width;
+            double newY = graphController.points[draggedIndex].y +
+                dy * (maxY - minY) / box.size.height;
+            graphController.updatePoint(draggedIndex, FlSpot(newX, newY));
+            dragStart = localPosition;
           }
-
-          // double x = (localPosition.dx / box.size.width) * 10;
-          // double y = (1 - localPosition.dy / box.size.height) * 10;
-          
-          // for (int i = 0; i < points.length; i++) {
-          //   if ((points[i].x - x).abs() < 0.5 && (points[i].y - y).abs() < 0.5) {
-          //     _updatePoint(i, FlSpot(x, y));
-          //     break;
-          //   }
-          // }
         },
         child: Center(
           child: Container(
             height: 300,
-            child: LineChart(
-              linechartdata,
-            ),
+            child: Obx(() {
+              // Determine boundaries based on the current points.
+              double minX = graphController.points
+                  .reduce((curr, next) => next.x < curr.x ? next : curr)
+                  .x;
+              double maxX = graphController.points
+                  .reduce((curr, next) => next.x > curr.x ? next : curr)
+                  .x;
+              double minY = graphController.points
+                  .reduce((curr, next) => next.y < curr.y ? next : curr)
+                  .y;
+              double maxY = graphController.points
+                  .reduce((curr, next) => next.y > curr.y ? next : curr)
+                  .y;
+
+              LineChartData lineChartData = LineChartData(
+                minX: minX,
+                maxX: maxX,
+                minY: minY,
+                maxY: maxY,
+                lineBarsData: [
+                  LineChartBarData(
+                    spots: List.of(graphController.points),
+                    isCurved: true,
+                    barWidth: 4,
+                    color: Colors.blue,
+                    belowBarData: BarAreaData(show: false),
+                  ),
+                ],
+                lineTouchData: LineTouchData(
+                  touchCallback: (FlTouchEvent event, LineTouchResponse? response) {
+                    if (event is FlPanEndEvent) {
+                      draggedIndex = -1;
+                    }
+                    if (response != null &&
+                        response.lineBarSpots != null &&
+                        draggedIndex < 0) {
+                      final spot = response.lineBarSpots!.first;
+                      draggedIndex = spot.spotIndex;
+                      dragStart = event.localPosition;
+                      print(
+                          'selected: ${spot.x}, ${spot.y} (${dragStart?.dx}, ${dragStart?.dy})');
+                    }
+                  },
+                  handleBuiltInTouches: true,
+                ),
+              );
+              return LineChart(lineChartData);
+            }),
           ),
         ),
       ),
     );
+  }
+}
+
+class GraphController extends GetxController {
+  var points = <FlSpot>[].obs;
+
+  @override
+  void onInit() {
+    points.assignAll([FlSpot(1, 1), FlSpot(2, 2), FlSpot(3, 3)]);
+    super.onInit();
+  }
+
+  void updatePoint(int index, FlSpot newSpot) {
+    points[index] = newSpot;
+    points.refresh();
   }
 }
