@@ -161,11 +161,6 @@ class _MainScreenState extends State<MainScreen> {
   }
 }
 
-// -------------------------------------------------
-// DetailScreen is a stateful widget to handle
-// the top-bar editable entry name and the small
-// inhalation time input above the Slider chart.
-// -------------------------------------------------
 class DetailScreen extends StatefulWidget {
   final String entry;
   final int index;
@@ -199,13 +194,13 @@ class _DetailScreenState extends State<DetailScreen> {
     if (!Get.isRegistered<ChartController>(tag: "slider")) {
       Get.put(
           ChartController(
-              initialPoints: [Offset(1, 1), Offset(2, 2), Offset(3, 3)]),
+              initialPoints: [Offset(0, 0), Offset(1, 0.25), Offset(2, 0.5), Offset(3, 0.75), Offset(4, 1)]),
           tag: "slider");
     }
     if (!Get.isRegistered<ChartController>(tag: "kinematics")) {
       Get.put(
           ChartController(
-              initialPoints: [Offset(1, 2), Offset(2, 3), Offset(3, 4)]),
+              initialPoints: [Offset(0, 1), Offset(60, 0)]),
           tag: "kinematics");
     }
 
@@ -301,30 +296,22 @@ class _CustomChartWidgetState extends State<CustomChartWidget> {
   Offset? dragStart;
   Offset? currentDragPoint; // Track the currently dragged point (data coordinates)
 
-  // Compute data bounds (min and max for x and y).
+  // Compute data bounds (min and max for x, but fixed for y).
   Map<String, double> computeBounds(List<Offset> points) {
     double minX = points.first.dx;
     double maxX = points.first.dx;
-    double minY = points.first.dy;
-    double maxY = points.first.dy;
     for (Offset p in points) {
       if (p.dx < minX) minX = p.dx;
       if (p.dx > maxX) maxX = p.dx;
-      if (p.dy < minY) minY = p.dy;
-      if (p.dy > maxY) maxY = p.dy;
     }
-    return {'minX': minX, 'maxX': maxX, 'minY': minY, 'maxY': maxY};
+    return {'minX': minX, 'maxX': maxX, 'minY': 0, 'maxY': 1};
   }
 
   // Convert a data point into canvas coordinates.
   Offset dataToPixel(
       Offset data, Size size, double minX, double maxX, double minY, double maxY) {
-    double x = (data.dx - minX) /
-        ((maxX - minX) == 0 ? 1 : (maxX - minX)) *
-        size.width;
-    double y = size.height -
-        ((data.dy - minY) / ((maxY - minY) == 0 ? 1 : (maxY - minY)) *
-            size.height);
+    double x = (data.dx - minX) / ((maxX - minX) == 0 ? 1 : (maxX - minX)) * size.width;
+    double y = size.height - ((data.dy - minY) / ((maxY - minY) == 0 ? 1 : (maxY - minY)) * size.height);
     return Offset(x, y);
   }
 
@@ -341,6 +328,52 @@ class _CustomChartWidgetState extends State<CustomChartWidget> {
     final axisColor = theme.textTheme.bodySmall?.color ?? Colors.black;
 
     return GestureDetector(
+      // When the user long-presses, check if a point is nearby and delete it.
+      onLongPressStart: (details) {
+        RenderBox box = context.findRenderObject() as RenderBox;
+        Offset localPos = box.globalToLocal(details.globalPosition);
+        var bounds = computeBounds(chartController.points);
+        double minX = bounds['minX']!;
+        double maxX = bounds['maxX']!;
+        double minY = bounds['minY']!;
+        double maxY = bounds['maxY']!;
+        for (int i = 0; i < chartController.points.length; i++) {
+          Offset point = chartController.points[i];
+          Offset pixel = dataToPixel(point, box.size, minX, maxX, minY, maxY);
+          if ((pixel - localPos).distance < 30) {
+            chartController.points.removeAt(i);
+            chartController.points.refresh();
+            break;
+          }
+        }
+      },
+      onPanDown: (details) {
+        RenderBox box = context.findRenderObject() as RenderBox;
+        Offset localPos = box.globalToLocal(details.globalPosition);
+        var bounds = computeBounds(chartController.points);
+        double minX = bounds['minX']!;
+        double maxX = bounds['maxX']!;
+        double minY = bounds['minY']!;
+        double maxY = bounds['maxY']!;
+        bool found = false;
+        // Check if the touch is near any point.
+        for (int i = 0; i < chartController.points.length; i++) {
+          Offset point = chartController.points[i];
+          Offset pixel = dataToPixel(point, box.size, minX, maxX, minY, maxY);
+          if ((pixel - localPos).distance < 30) {
+            found = true;
+            break;
+          }
+        }
+        // If no point was found, add a new one immediately.
+        if (!found) {
+          double newDataX = minX + (localPos.dx / box.size.width) * (maxX - minX);
+          double newDataY = minY + ((box.size.height - localPos.dy) / box.size.height) * (maxY - minY);
+          chartController.points.add(Offset(newDataX, newDataY));
+          chartController.points.sort((a, b) => a.dx.compareTo(b.dx));
+          chartController.points.refresh();
+        }
+      },
       onPanStart: (details) {
         RenderBox box = context.findRenderObject() as RenderBox;
         Offset localPos = box.globalToLocal(details.globalPosition);
@@ -354,23 +387,12 @@ class _CustomChartWidgetState extends State<CustomChartWidget> {
         for (int i = 0; i < chartController.points.length; i++) {
           Offset point = chartController.points[i];
           Offset pixel = dataToPixel(point, box.size, minX, maxX, minY, maxY);
-          if ((pixel - localPos).distance < 20) {
+          if ((pixel - localPos).distance < 30) {
             draggedIndex = i;
             dragStart = localPos;
             found = true;
             break;
           }
-        }
-        // If no point was near the touch, create a new point.
-        if (!found) {
-          double newDataX =
-              minX + (localPos.dx / box.size.width) * (maxX - minX);
-          double newDataY = minY +
-              ((box.size.height - localPos.dy) / box.size.height) * (maxY - minY);
-          chartController.points.add(Offset(newDataX, newDataY));
-          chartController.points.refresh();
-          draggedIndex = chartController.points.length - 1;
-          dragStart = localPos;
         }
       },
       onPanUpdate: (details) {
@@ -426,7 +448,8 @@ class _CustomChartWidgetState extends State<CustomChartWidget> {
               xAxisLabel: xAxisLabel,
               yAxisLabel: yAxisLabel,
               axisColor: axisColor,
-              draggedPoint: currentDragPoint, // pass the currently dragged point
+              chartColor: theme.primaryColor, // Use theme primary color for chart.
+              draggedPoint: currentDragPoint, // Pass the currently dragged point.
             ),
             child: Container(),
           );
@@ -441,15 +464,15 @@ class LineChartPainter extends CustomPainter {
   final String xAxisLabel;
   final String yAxisLabel;
   final Color axisColor; // Color for axes, ticks, and labels.
+  final Color chartColor; // Use theme primary color for chart.
   final Offset? draggedPoint; // The point currently being dragged (if any)
-  // Chart line and data points remain blue.
-  final Color chartColor = Colors.blue;
 
   LineChartPainter({
     required this.points,
     required this.xAxisLabel,
     required this.yAxisLabel,
     required this.axisColor,
+    required this.chartColor,
     this.draggedPoint,
   });
 
@@ -457,26 +480,23 @@ class LineChartPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     if (points.isEmpty) return;
 
-    // Compute boundaries.
+    // Compute x boundaries from points; use fixed y-axis range 0 to 1.
     double minX = points.first.dx;
     double maxX = points.first.dx;
-    double minY = points.first.dy;
-    double maxY = points.first.dy;
     for (Offset p in points) {
       if (p.dx < minX) minX = p.dx;
       if (p.dx > maxX) maxX = p.dx;
-      if (p.dy < minY) minY = p.dy;
-      if (p.dy > maxY) maxY = p.dy;
     }
     double rangeX = maxX - minX;
-    double rangeY = maxY - minY;
     if (rangeX == 0) rangeX = 1;
-    if (rangeY == 0) rangeY = 1;
+    double fixedMinY = 0;
+    double fixedMaxY = 1;
+    double rangeY = fixedMaxY - fixedMinY; // Always 1.
 
     // Map data points to canvas coordinates.
     List<Offset> mappedPoints = points.map((p) {
       double x = (p.dx - minX) / rangeX * size.width;
-      double y = size.height - ((p.dy - minY) / rangeY * size.height);
+      double y = size.height - ((p.dy - fixedMinY) / rangeY * size.height);
       return Offset(x, y);
     }).toList();
 
@@ -534,7 +554,7 @@ class LineChartPainter extends CustomPainter {
     // y-axis ticks (displayed as percentages).
     for (int i = 0; i <= tickCount; i++) {
       double tickY = size.height - i * size.height / tickCount;
-      double tickValue = minY + (rangeY) * i / tickCount;
+      double tickValue = fixedMinY + (rangeY) * i / tickCount;
       canvas.drawLine(Offset(0, tickY), Offset(5, tickY), axisPaint);
       String tickText = (tickValue * 100).toStringAsFixed(0) + "%";
       TextPainter tp = TextPainter(
@@ -567,7 +587,8 @@ class LineChartPainter extends CustomPainter {
       textDirection: TextDirection.ltr,
     );
     yLabelPainter.layout();
-    canvas.translate(-25, size.height / 2 + yLabelPainter.width / 2);
+    // Adjusted offset to move label further left.
+    canvas.translate(-40, size.height / 2 + yLabelPainter.width / 2);
     canvas.rotate(-3.14159 / 2);
     yLabelPainter.paint(canvas, Offset(0, 0));
     canvas.restore();
@@ -600,10 +621,8 @@ class LineChartPainter extends CustomPainter {
     // If dragging, draw coordinate labels.
     // -------------------------
     if (draggedPoint != null) {
-      // Convert dragged data point to canvas coordinates.
       double dragPixelX = (draggedPoint!.dx - minX) / rangeX * size.width;
-      double dragPixelY = size.height -
-          ((draggedPoint!.dy - minY) / rangeY * size.height);
+      double dragPixelY = size.height - ((draggedPoint!.dy - fixedMinY) / rangeY * size.height);
 
       // X-axis coordinate label.
       String xDragText = draggedPoint!.dx.toStringAsFixed(1);
