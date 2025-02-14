@@ -78,7 +78,15 @@ class EntriesController extends GetxController {
   }
 }
 
-class MainScreen extends StatelessWidget {
+// MainScreen now uses a stateful widget to track the currently selected entry.
+class MainScreen extends StatefulWidget {
+  @override
+  _MainScreenState createState() => _MainScreenState();
+}
+
+class _MainScreenState extends State<MainScreen> {
+  int selectedIndex = -1;
+
   @override
   Widget build(BuildContext context) {
     final entriesController = Get.find<EntriesController>();
@@ -112,34 +120,27 @@ class MainScreen extends StatelessWidget {
         () => ListView.builder(
           itemCount: entriesController.entries.length,
           itemBuilder: (context, index) {
+            bool isSelected = index == selectedIndex;
             return ListTile(
               title: Text(entriesController.entries[index]),
-              onTap: () => Get.to(() => DetailScreen(
-                    entry: entriesController.entries[index],
-                    index: index,
-                  )),
+              tileColor:
+                  isSelected ? Theme.of(context).highlightColor : null,
+              onTap: () {
+                setState(() {
+                  selectedIndex = index;
+                });
+              },
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  // Pencil icon routes to the detail screen for editing.
                   IconButton(
                     icon: Icon(Icons.edit),
                     onPressed: () {
-                      TextEditingController controller = TextEditingController(
-                          text: entriesController.entries[index]);
-                      Get.defaultDialog(
-                        title: 'Rename Entry',
-                        content: TextField(
-                          controller: controller,
-                          decoration:
-                              InputDecoration(hintText: 'Enter new name'),
-                        ),
-                        textCancel: 'Cancel',
-                        textConfirm: 'Save',
-                        onConfirm: () {
-                          entriesController.renameEntry(index, controller.text);
-                          Get.back();
-                        },
-                      );
+                      Get.to(() => DetailScreen(
+                            entry: entriesController.entries[index],
+                            index: index,
+                          ));
                     },
                   ),
                   IconButton(
@@ -161,9 +162,9 @@ class MainScreen extends StatelessWidget {
 }
 
 // -------------------------------------------------
-// DetailScreen is now a StatefulWidget to handle
-// the top-bar text field (for renaming) and the
-// inhalation time input above the Slider section.
+// DetailScreen is a stateful widget to handle
+// the top-bar editable entry name and the small
+// inhalation time input above the Slider chart.
 // -------------------------------------------------
 class DetailScreen extends StatefulWidget {
   final String entry;
@@ -210,13 +211,19 @@ class _DetailScreenState extends State<DetailScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        // A text field in the AppBar allows editing the entry name.
+        // Editable entry name using theme-based colors.
         title: TextField(
           controller: _entryController,
-          style: TextStyle(color: Colors.white, fontSize: 18),
+          style: TextStyle(
+            color: Theme.of(context).colorScheme.onPrimary,
+            fontSize: 18,
+          ),
           decoration: InputDecoration(
             hintText: 'Enter entry name',
-            hintStyle: TextStyle(color: Colors.white54),
+            hintStyle: TextStyle(
+              color:
+                  Theme.of(context).colorScheme.onPrimary.withOpacity(0.6),
+            ),
             border: InputBorder.none,
           ),
           onSubmitted: (newName) {
@@ -229,13 +236,18 @@ class _DetailScreenState extends State<DetailScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Inhalation time input above the Slider section.
-            TextField(
-              controller: _inhalationTimeController,
-              decoration: InputDecoration(
-                labelText: 'inhalation time [s]',
+            // Smaller inhalation time input with a fixed width and maxLength 2.
+            Container(
+              width: 80,
+              child: TextField(
+                controller: _inhalationTimeController,
+                decoration: InputDecoration(
+                  labelText: 'inhalation time [s]',
+                  counterText: '',
+                ),
+                keyboardType: TextInputType.number,
+                maxLength: 2,
               ),
-              keyboardType: TextInputType.number,
             ),
             SizedBox(height: 16),
             Text('Slider',
@@ -299,7 +311,8 @@ class _CustomChartWidgetState extends State<CustomChartWidget> {
   // Convert a data point into canvas coordinates.
   Offset dataToPixel(
       Offset data, Size size, double minX, double maxX, double minY, double maxY) {
-    double x = (data.dx - minX) / ((maxX - minX) == 0 ? 1 : (maxX - minX)) *
+    double x = (data.dx - minX) /
+        ((maxX - minX) == 0 ? 1 : (maxX - minX)) *
         size.width;
     double y = size.height -
         ((data.dy - minY) / ((maxY - minY) == 0 ? 1 : (maxY - minY)) *
@@ -315,6 +328,10 @@ class _CustomChartWidgetState extends State<CustomChartWidget> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    // Use the theme's text color for axes, ticks, and labels.
+    final axisColor = theme.textTheme.bodyText1?.color ?? Colors.black;
+
     return GestureDetector(
       onPanStart: (details) {
         RenderBox box = context.findRenderObject() as RenderBox;
@@ -360,7 +377,7 @@ class _CustomChartWidgetState extends State<CustomChartWidget> {
         dragStart = null;
       },
       child: Container(
-        height: 300,
+        height: 250, // decreased height from 300 to 250
         width: double.infinity,
         child: Obx(() {
           // Determine axis labels based on the widget tag.
@@ -381,6 +398,7 @@ class _CustomChartWidgetState extends State<CustomChartWidget> {
               points: chartController.points.toList(),
               xAxisLabel: xAxisLabel,
               yAxisLabel: yAxisLabel,
+              axisColor: axisColor,
             ),
             child: Container(),
           );
@@ -394,13 +412,15 @@ class LineChartPainter extends CustomPainter {
   final List<Offset> points;
   final String xAxisLabel;
   final String yAxisLabel;
-  // Use a single color for both the line and points.
+  final Color axisColor; // Color for axes, ticks, and labels.
+  // Chart line and data points remain blue.
   final Color chartColor = Colors.blue;
 
   LineChartPainter({
     required this.points,
     required this.xAxisLabel,
     required this.yAxisLabel,
+    required this.axisColor,
   });
 
   @override
@@ -432,7 +452,7 @@ class LineChartPainter extends CustomPainter {
 
     // Draw axes.
     Paint axisPaint = Paint()
-      ..color = Colors.black
+      ..color = axisColor
       ..strokeWidth = 1;
 
     // x-axis: from bottom left to bottom right.
@@ -443,21 +463,24 @@ class LineChartPainter extends CustomPainter {
 
     // Draw ticks and labels.
     const int tickCount = 5;
-    final textStyle = TextStyle(color: Colors.black, fontSize: 10);
+    final textStyle = TextStyle(color: axisColor, fontSize: 10);
     // x-axis ticks.
     for (int i = 0; i <= tickCount; i++) {
       double tickX = i * size.width / tickCount;
       double tickValue = minX + (rangeX) * i / tickCount;
       // Tick mark.
       canvas.drawLine(
-          Offset(tickX, size.height), Offset(tickX, size.height - 5), axisPaint);
+          Offset(tickX, size.height),
+          Offset(tickX, size.height - 5),
+          axisPaint);
       // Draw text.
       TextPainter tp = TextPainter(
         text: TextSpan(text: tickValue.toStringAsFixed(1), style: textStyle),
         textDirection: TextDirection.ltr,
       );
       tp.layout();
-      tp.paint(canvas, Offset(tickX - tp.width / 2, size.height + 2));
+      tp.paint(canvas,
+          Offset(tickX - tp.width / 2, size.height + 2));
     }
     // y-axis ticks.
     for (int i = 0; i <= tickCount; i++) {
@@ -469,19 +492,22 @@ class LineChartPainter extends CustomPainter {
         textDirection: TextDirection.ltr,
       );
       tp.layout();
-      tp.paint(canvas, Offset(-tp.width - 2, tickY - tp.height / 2));
+      tp.paint(canvas,
+          Offset(-tp.width - 2, tickY - tp.height / 2));
     }
 
     // Draw axis labels.
-    final labelStyle = TextStyle(color: Colors.black, fontSize: 12);
-    // x-axis label: centered below the x-axis.
+    final labelStyle = TextStyle(color: axisColor, fontSize: 12);
+    // x-axis label: centered below the axis.
     TextPainter xLabelPainter = TextPainter(
       text: TextSpan(text: xAxisLabel, style: labelStyle),
       textDirection: TextDirection.ltr,
     );
     xLabelPainter.layout();
     xLabelPainter.paint(
-        canvas, Offset(size.width / 2 - xLabelPainter.width / 2, size.height + 15));
+        canvas,
+        Offset(size.width / 2 - xLabelPainter.width / 2,
+            size.height + 15));
 
     // y-axis label: rotated and centered along the y-axis.
     canvas.save();
@@ -490,7 +516,6 @@ class LineChartPainter extends CustomPainter {
       textDirection: TextDirection.ltr,
     );
     yLabelPainter.layout();
-    // Translate and rotate for y-axis label.
     canvas.translate(-25, size.height / 2 + yLabelPainter.width / 2);
     canvas.rotate(-3.14159 / 2);
     yLabelPainter.paint(canvas, Offset(0, 0));
