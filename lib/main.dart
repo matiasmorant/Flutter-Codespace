@@ -114,8 +114,10 @@ class MainScreen extends StatelessWidget {
           itemBuilder: (context, index) {
             return ListTile(
               title: Text(entriesController.entries[index]),
-              onTap: () => Get.to(
-                  () => DetailScreen(entry: entriesController.entries[index])),
+              onTap: () => Get.to(() => DetailScreen(
+                    entry: entriesController.entries[index],
+                    index: index,
+                  )),
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -158,29 +160,84 @@ class MainScreen extends StatelessWidget {
   }
 }
 
-class DetailScreen extends StatelessWidget {
+// -------------------------------------------------
+// DetailScreen is now a StatefulWidget to handle
+// the top-bar text field (for renaming) and the
+// inhalation time input above the Slider section.
+// -------------------------------------------------
+class DetailScreen extends StatefulWidget {
   final String entry;
-  DetailScreen({required this.entry});
+  final int index;
+  DetailScreen({required this.entry, required this.index});
+
+  @override
+  _DetailScreenState createState() => _DetailScreenState();
+}
+
+class _DetailScreenState extends State<DetailScreen> {
+  late TextEditingController _entryController;
+  late TextEditingController _inhalationTimeController;
+
+  @override
+  void initState() {
+    super.initState();
+    _entryController = TextEditingController(text: widget.entry);
+    _inhalationTimeController = TextEditingController(text: "10");
+  }
+
+  @override
+  void dispose() {
+    _entryController.dispose();
+    _inhalationTimeController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     // Ensure two separate ChartControllers exist with distinct tags.
     if (!Get.isRegistered<ChartController>(tag: "slider")) {
-      Get.put(ChartController(initialPoints: [Offset(1, 1), Offset(2, 2), Offset(3, 3)]),
+      Get.put(
+          ChartController(
+              initialPoints: [Offset(1, 1), Offset(2, 2), Offset(3, 3)]),
           tag: "slider");
     }
     if (!Get.isRegistered<ChartController>(tag: "kinematics")) {
-      Get.put(ChartController(initialPoints: [Offset(1, 2), Offset(2, 3), Offset(3, 4)]),
+      Get.put(
+          ChartController(
+              initialPoints: [Offset(1, 2), Offset(2, 3), Offset(3, 4)]),
           tag: "kinematics");
     }
 
     return Scaffold(
-      appBar: AppBar(title: Text(entry)),
+      appBar: AppBar(
+        // A text field in the AppBar allows editing the entry name.
+        title: TextField(
+          controller: _entryController,
+          style: TextStyle(color: Colors.white, fontSize: 18),
+          decoration: InputDecoration(
+            hintText: 'Enter entry name',
+            hintStyle: TextStyle(color: Colors.white54),
+            border: InputBorder.none,
+          ),
+          onSubmitted: (newName) {
+            Get.find<EntriesController>().renameEntry(widget.index, newName);
+          },
+        ),
+      ),
       body: SingleChildScrollView(
         padding: EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Inhalation time input above the Slider section.
+            TextField(
+              controller: _inhalationTimeController,
+              decoration: InputDecoration(
+                labelText: 'inhalation time [s]',
+              ),
+              keyboardType: TextInputType.number,
+            ),
+            SizedBox(height: 16),
             Text('Slider',
                 style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
             SizedBox(height: 8),
@@ -306,8 +363,25 @@ class _CustomChartWidgetState extends State<CustomChartWidget> {
         height: 300,
         width: double.infinity,
         child: Obx(() {
+          // Determine axis labels based on the widget tag.
+          String xAxisLabel;
+          String yAxisLabel;
+          if (widget.tag == "slider") {
+            xAxisLabel = "position";
+            yAxisLabel = "dose";
+          } else if (widget.tag == "kinematics") {
+            xAxisLabel = "time [m]";
+            yAxisLabel = "intensity";
+          } else {
+            xAxisLabel = "";
+            yAxisLabel = "";
+          }
           return CustomPaint(
-            painter: LineChartPainter(points: chartController.points.toList()),
+            painter: LineChartPainter(
+              points: chartController.points.toList(),
+              xAxisLabel: xAxisLabel,
+              yAxisLabel: yAxisLabel,
+            ),
             child: Container(),
           );
         }),
@@ -318,10 +392,16 @@ class _CustomChartWidgetState extends State<CustomChartWidget> {
 
 class LineChartPainter extends CustomPainter {
   final List<Offset> points;
+  final String xAxisLabel;
+  final String yAxisLabel;
   // Use a single color for both the line and points.
   final Color chartColor = Colors.blue;
 
-  LineChartPainter({required this.points});
+  LineChartPainter({
+    required this.points,
+    required this.xAxisLabel,
+    required this.yAxisLabel,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -356,7 +436,8 @@ class LineChartPainter extends CustomPainter {
       ..strokeWidth = 1;
 
     // x-axis: from bottom left to bottom right.
-    canvas.drawLine(Offset(0, size.height), Offset(size.width, size.height), axisPaint);
+    canvas.drawLine(
+        Offset(0, size.height), Offset(size.width, size.height), axisPaint);
     // y-axis: from bottom left to top left.
     canvas.drawLine(Offset(0, size.height), Offset(0, 0), axisPaint);
 
@@ -368,7 +449,8 @@ class LineChartPainter extends CustomPainter {
       double tickX = i * size.width / tickCount;
       double tickValue = minX + (rangeX) * i / tickCount;
       // Tick mark.
-      canvas.drawLine(Offset(tickX, size.height), Offset(tickX, size.height - 5), axisPaint);
+      canvas.drawLine(
+          Offset(tickX, size.height), Offset(tickX, size.height - 5), axisPaint);
       // Draw text.
       TextPainter tp = TextPainter(
         text: TextSpan(text: tickValue.toStringAsFixed(1), style: textStyle),
@@ -389,6 +471,30 @@ class LineChartPainter extends CustomPainter {
       tp.layout();
       tp.paint(canvas, Offset(-tp.width - 2, tickY - tp.height / 2));
     }
+
+    // Draw axis labels.
+    final labelStyle = TextStyle(color: Colors.black, fontSize: 12);
+    // x-axis label: centered below the x-axis.
+    TextPainter xLabelPainter = TextPainter(
+      text: TextSpan(text: xAxisLabel, style: labelStyle),
+      textDirection: TextDirection.ltr,
+    );
+    xLabelPainter.layout();
+    xLabelPainter.paint(
+        canvas, Offset(size.width / 2 - xLabelPainter.width / 2, size.height + 15));
+
+    // y-axis label: rotated and centered along the y-axis.
+    canvas.save();
+    TextPainter yLabelPainter = TextPainter(
+      text: TextSpan(text: yAxisLabel, style: labelStyle),
+      textDirection: TextDirection.ltr,
+    );
+    yLabelPainter.layout();
+    // Translate and rotate for y-axis label.
+    canvas.translate(-25, size.height / 2 + yLabelPainter.width / 2);
+    canvas.rotate(-3.14159 / 2);
+    yLabelPainter.paint(canvas, Offset(0, 0));
+    canvas.restore();
 
     // Draw the chart line.
     Paint linePaint = Paint()
