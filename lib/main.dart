@@ -10,17 +10,15 @@ void main() async {
   await Hive.openBox('entries');
   await Hive.openBox('settings');
 
-  // Initialize our controllers so they’re available app-wide.
+  // Initialize global controllers.
   Get.put(SettingsController());
   Get.put(EntriesController());
-  Get.put(GraphController());
   runApp(MyApp());
 }
 
 class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    // Using Obx to reactively update the theme.
     return Obx(() {
       final isDark = Get.find<SettingsController>().isDarkMode.value;
       return GetMaterialApp(
@@ -93,7 +91,6 @@ class MainScreen extends StatelessWidget {
           IconButton(
             icon: Icon(Icons.settings),
             onPressed: () {
-              // Use Get.defaultDialog for the settings dialog.
               Get.defaultDialog(
                 title: 'Settings',
                 content: Obx(
@@ -167,41 +164,68 @@ class DetailScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Ensure two separate ChartControllers exist with distinct tags.
+    if (!Get.isRegistered<ChartController>(tag: "slider")) {
+      Get.put(ChartController(initialPoints: [Offset(1, 1), Offset(2, 2), Offset(3, 3)]),
+          tag: "slider");
+    }
+    if (!Get.isRegistered<ChartController>(tag: "kinematics")) {
+      Get.put(ChartController(initialPoints: [Offset(1, 2), Offset(2, 3), Offset(3, 4)]),
+          tag: "kinematics");
+    }
+
     return Scaffold(
       appBar: AppBar(title: Text(entry)),
-      body: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          ElevatedButton(
-            onPressed: () => Get.to(() => GraphScreen(title: 'Slider')),
-            child: Text('Slider'),
-          ),
-          ElevatedButton(
-            onPressed: () => Get.to(() => GraphScreen(title: 'Kinematics')),
-            child: Text('Kinematics'),
-          ),
-        ],
+      body: SingleChildScrollView(
+        padding: EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Slider',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+            SizedBox(height: 8),
+            CustomChartWidget(tag: "slider"),
+            SizedBox(height: 32),
+            Text('Kinematics',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+            SizedBox(height: 8),
+            CustomChartWidget(tag: "kinematics"),
+          ],
+        ),
       ),
     );
   }
 }
 
-class GraphScreen extends StatefulWidget {
-  final String title;
-  GraphScreen({required this.title});
+class ChartController extends GetxController {
+  // Holds chart data points.
+  var points = <Offset>[].obs;
 
-  @override
-  _GraphScreenState createState() => _GraphScreenState();
+  ChartController({required List<Offset> initialPoints}) {
+    points.assignAll(initialPoints);
+  }
+
+  void updatePoint(int index, Offset newPoint) {
+    points[index] = newPoint;
+    points.refresh();
+  }
 }
 
-class _GraphScreenState extends State<GraphScreen> {
-  final GraphController graphController = Get.find<GraphController>();
+class CustomChartWidget extends StatefulWidget {
+  final String tag;
+  const CustomChartWidget({Key? key, required this.tag}) : super(key: key);
+
+  @override
+  _CustomChartWidgetState createState() => _CustomChartWidgetState();
+}
+
+class _CustomChartWidgetState extends State<CustomChartWidget> {
+  late ChartController chartController;
   int draggedIndex = -1;
   Offset? dragStart;
 
-  // Computes the minimum and maximum values for x and y.
-  Map<String, double> computeBounds() {
-    List<Offset> points = graphController.points;
+  // Compute data bounds (min and max for x and y).
+  Map<String, double> computeBounds(List<Offset> points) {
     double minX = points.first.dx;
     double maxX = points.first.dx;
     double minY = points.first.dy;
@@ -215,7 +239,7 @@ class _GraphScreenState extends State<GraphScreen> {
     return {'minX': minX, 'maxX': maxX, 'minY': minY, 'maxY': maxY};
   }
 
-  // Converts a data point to a pixel position within the given size.
+  // Convert a data point into canvas coordinates.
   Offset dataToPixel(
       Offset data, Size size, double minX, double maxX, double minY, double maxY) {
     double x = (data.dx - minX) / ((maxX - minX) == 0 ? 1 : (maxX - minX)) *
@@ -227,91 +251,75 @@ class _GraphScreenState extends State<GraphScreen> {
   }
 
   @override
+  void initState() {
+    super.initState();
+    chartController = Get.find<ChartController>(tag: widget.tag);
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text(widget.title)),
-      body: GestureDetector(
-        onPanStart: (details) {
+    return GestureDetector(
+      onPanStart: (details) {
+        RenderBox box = context.findRenderObject() as RenderBox;
+        Offset localPos = box.globalToLocal(details.globalPosition);
+        var bounds = computeBounds(chartController.points);
+        double minX = bounds['minX']!;
+        double maxX = bounds['maxX']!;
+        double minY = bounds['minY']!;
+        double maxY = bounds['maxY']!;
+        // Check if the touch is near any point.
+        for (int i = 0; i < chartController.points.length; i++) {
+          Offset point = chartController.points[i];
+          Offset pixel = dataToPixel(point, box.size, minX, maxX, minY, maxY);
+          if ((pixel - localPos).distance < 20) {
+            draggedIndex = i;
+            dragStart = localPos;
+            break;
+          }
+        }
+      },
+      onPanUpdate: (details) {
+        if (draggedIndex != -1 && dragStart != null) {
           RenderBox box = context.findRenderObject() as RenderBox;
           Offset localPos = box.globalToLocal(details.globalPosition);
-          var bounds = computeBounds();
+          var bounds = computeBounds(chartController.points);
           double minX = bounds['minX']!;
           double maxX = bounds['maxX']!;
           double minY = bounds['minY']!;
           double maxY = bounds['maxY']!;
-          // Check if the touch is near any of the points.
-          for (int i = 0; i < graphController.points.length; i++) {
-            Offset point = graphController.points[i];
-            Offset pixel = dataToPixel(point, box.size, minX, maxX, minY, maxY);
-            print('Match? $pixel = $localPos');
-            if ((pixel - localPos).distance < 20) {
-              draggedIndex = i;
-              dragStart = localPos;
-              break;
-            }
-          }
-        },
-        onPanUpdate: (details) {
-          if (draggedIndex != -1 && dragStart != null) {
-            RenderBox box = context.findRenderObject() as RenderBox;
-            Offset localPos = box.globalToLocal(details.globalPosition);
-            var bounds = computeBounds();
-            double minX = bounds['minX']!;
-            double maxX = bounds['maxX']!;
-            double minY = bounds['minY']!;
-            double maxY = bounds['maxY']!;
-            double dx = localPos.dx - dragStart!.dx;
-            double dy = localPos.dy - dragStart!.dy;
-            // Scale factors from pixel movement to data space.
-            double scaleX = (maxX - minX) / box.size.width;
-            double scaleY = (maxY - minY) / box.size.height;
-            // Note the inversion for the y-axis.
-            double newX = graphController.points[draggedIndex].dx + dx * scaleX;
-            double newY = graphController.points[draggedIndex].dy - dy * scaleY;
-            graphController.updatePoint(draggedIndex, Offset(newX, newY));
-            dragStart = localPos;
-          }
-        },
-        onPanEnd: (details) {
-          draggedIndex = -1;
-          dragStart = null;
-        },
-        child: Center(
-          child: Container(
-            height: 300,
-            width: double.infinity,
-            child: Obx(() {
-              return CustomPaint(
-                painter: LineChartPainter(
-                    points: graphController.points.toList()),
-                child: Container(),
-              );
-            }),
-          ),
-        ),
+          double dx = localPos.dx - dragStart!.dx;
+          double dy = localPos.dy - dragStart!.dy;
+          double scaleX = (maxX - minX) / box.size.width;
+          double scaleY = (maxY - minY) / box.size.height;
+          // Invert y-axis movement.
+          double newX = chartController.points[draggedIndex].dx + dx * scaleX;
+          double newY = chartController.points[draggedIndex].dy - dy * scaleY;
+          chartController.updatePoint(draggedIndex, Offset(newX, newY));
+          dragStart = localPos;
+        }
+      },
+      onPanEnd: (details) {
+        draggedIndex = -1;
+        dragStart = null;
+      },
+      child: Container(
+        height: 300,
+        width: double.infinity,
+        child: Obx(() {
+          return CustomPaint(
+            painter: LineChartPainter(points: chartController.points.toList()),
+            child: Container(),
+          );
+        }),
       ),
     );
   }
 }
 
-class GraphController extends GetxController {
-  // Using Offset to represent each point (x, y)
-  var points = <Offset>[].obs;
-
-  @override
-  void onInit() {
-    points.assignAll([Offset(1, 1), Offset(2, 2), Offset(3, 3)]);
-    super.onInit();
-  }
-
-  void updatePoint(int index, Offset newPoint) {
-    points[index] = newPoint;
-    points.refresh();
-  }
-}
-
 class LineChartPainter extends CustomPainter {
   final List<Offset> points;
+  // Use a single color for both the line and points.
+  final Color chartColor = Colors.blue;
 
   LineChartPainter({required this.points});
 
@@ -319,7 +327,7 @@ class LineChartPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     if (points.isEmpty) return;
 
-    // Calculate boundaries.
+    // Compute boundaries.
     double minX = points.first.dx;
     double maxX = points.first.dx;
     double minY = points.first.dy;
@@ -342,25 +350,63 @@ class LineChartPainter extends CustomPainter {
       return Offset(x, y);
     }).toList();
 
-    // Paint for the connecting line.
+    // Draw axes.
+    Paint axisPaint = Paint()
+      ..color = Colors.black
+      ..strokeWidth = 1;
+
+    // x-axis: from bottom left to bottom right.
+    canvas.drawLine(Offset(0, size.height), Offset(size.width, size.height), axisPaint);
+    // y-axis: from bottom left to top left.
+    canvas.drawLine(Offset(0, size.height), Offset(0, 0), axisPaint);
+
+    // Draw ticks and labels.
+    const int tickCount = 5;
+    final textStyle = TextStyle(color: Colors.black, fontSize: 10);
+    // x-axis ticks.
+    for (int i = 0; i <= tickCount; i++) {
+      double tickX = i * size.width / tickCount;
+      double tickValue = minX + (rangeX) * i / tickCount;
+      // Tick mark.
+      canvas.drawLine(Offset(tickX, size.height), Offset(tickX, size.height - 5), axisPaint);
+      // Draw text.
+      TextPainter tp = TextPainter(
+        text: TextSpan(text: tickValue.toStringAsFixed(1), style: textStyle),
+        textDirection: TextDirection.ltr,
+      );
+      tp.layout();
+      tp.paint(canvas, Offset(tickX - tp.width / 2, size.height + 2));
+    }
+    // y-axis ticks.
+    for (int i = 0; i <= tickCount; i++) {
+      double tickY = size.height - i * size.height / tickCount;
+      double tickValue = minY + (rangeY) * i / tickCount;
+      canvas.drawLine(Offset(0, tickY), Offset(5, tickY), axisPaint);
+      TextPainter tp = TextPainter(
+        text: TextSpan(text: tickValue.toStringAsFixed(1), style: textStyle),
+        textDirection: TextDirection.ltr,
+      );
+      tp.layout();
+      tp.paint(canvas, Offset(-tp.width - 2, tickY - tp.height / 2));
+    }
+
+    // Draw the chart line.
     Paint linePaint = Paint()
-      ..color = Colors.blue
+      ..color = chartColor
       ..strokeWidth = 4
       ..style = PaintingStyle.stroke;
 
-    // Paint for the data points.
-    Paint circlePaint = Paint()
-      ..color = Colors.red
-      ..style = PaintingStyle.fill;
-
     Path path = Path();
-    path.moveTo(mappedPoints[0].dx, mappedPoints[0].dy);
+    path.moveTo(mappedPoints.first.dx, mappedPoints.first.dy);
     for (int i = 1; i < mappedPoints.length; i++) {
       path.lineTo(mappedPoints[i].dx, mappedPoints[i].dy);
     }
     canvas.drawPath(path, linePaint);
 
-    // Draw circles for each data point.
+    // Draw data points.
+    Paint circlePaint = Paint()
+      ..color = chartColor
+      ..style = PaintingStyle.fill;
     for (Offset p in mappedPoints) {
       canvas.drawCircle(p, 6, circlePaint);
     }
