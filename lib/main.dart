@@ -330,7 +330,7 @@ class _CustomChartWidgetState extends State<CustomChartWidget> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     // Use the theme's text color for axes, ticks, and labels.
-    final axisColor = theme.textTheme.bodyText1?.color ?? Colors.black;
+    final axisColor = theme.textTheme.bodySmall?.color ?? Colors.black;
 
     return GestureDetector(
       onPanStart: (details) {
