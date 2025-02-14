@@ -218,6 +218,7 @@ class _DetailScreenState extends State<DetailScreen> {
             color: Theme.of(context).colorScheme.onPrimary,
             fontSize: 18,
           ),
+          cursorColor: Theme.of(context).colorScheme.onPrimary,
           decoration: InputDecoration(
             hintText: 'Enter entry name',
             hintStyle: TextStyle(
@@ -225,6 +226,10 @@ class _DetailScreenState extends State<DetailScreen> {
                   Theme.of(context).colorScheme.onPrimary.withOpacity(0.6),
             ),
             border: InputBorder.none,
+            // Use the app bar's background color for the text field.
+            filled: true,
+            fillColor: Theme.of(context).appBarTheme.backgroundColor ??
+                Theme.of(context).primaryColor,
           ),
           onSubmitted: (newName) {
             Get.find<EntriesController>().renameEntry(widget.index, newName);
@@ -253,12 +258,14 @@ class _DetailScreenState extends State<DetailScreen> {
             Text('Slider',
                 style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
             SizedBox(height: 8),
-            CustomChartWidget(tag: "slider"),
+            // Center the chart horizontally.
+            Center(child: CustomChartWidget(tag: "slider")),
             SizedBox(height: 32),
             Text('Kinematics',
                 style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
             SizedBox(height: 8),
-            CustomChartWidget(tag: "kinematics"),
+            // Center the chart horizontally.
+            Center(child: CustomChartWidget(tag: "kinematics")),
           ],
         ),
       ),
@@ -342,6 +349,7 @@ class _CustomChartWidgetState extends State<CustomChartWidget> {
         double maxX = bounds['maxX']!;
         double minY = bounds['minY']!;
         double maxY = bounds['maxY']!;
+        bool found = false;
         // Check if the touch is near any point.
         for (int i = 0; i < chartController.points.length; i++) {
           Offset point = chartController.points[i];
@@ -349,8 +357,20 @@ class _CustomChartWidgetState extends State<CustomChartWidget> {
           if ((pixel - localPos).distance < 20) {
             draggedIndex = i;
             dragStart = localPos;
+            found = true;
             break;
           }
+        }
+        // If no point was near the touch, create a new point.
+        if (!found) {
+          double newDataX =
+              minX + (localPos.dx / box.size.width) * (maxX - minX);
+          double newDataY = minY +
+              ((box.size.height - localPos.dy) / box.size.height) * (maxY - minY);
+          chartController.points.add(Offset(newDataX, newDataY));
+          chartController.points.refresh();
+          draggedIndex = chartController.points.length - 1;
+          dragStart = localPos;
         }
       },
       onPanUpdate: (details) {
@@ -385,7 +405,7 @@ class _CustomChartWidgetState extends State<CustomChartWidget> {
       },
       child: Container(
         height: 250, 
-        width: MediaQuery.of(context).size.width * 0.8, // decreased width
+        width: MediaQuery.of(context).size.width * 0.8,
         child: Obx(() {
           // Determine axis labels based on the widget tag.
           String xAxisLabel;
