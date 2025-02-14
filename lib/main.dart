@@ -97,7 +97,7 @@ class _MainScreenState extends State<MainScreen> {
         title: Text('Entries'),
         actions: [
           IconButton(
-            icon: Icon(Icons.settings),
+            icon: Icon(Icons.more_vert),
             onPressed: () {
               Get.defaultDialog(
                 title: 'Settings',
@@ -143,10 +143,6 @@ class _MainScreenState extends State<MainScreen> {
                           ));
                     },
                   ),
-                  IconButton(
-                    icon: Icon(Icons.delete),
-                    onPressed: () => entriesController.deleteEntry(index),
-                  ),
                 ],
               ),
             );
@@ -186,6 +182,20 @@ class _DetailScreenState extends State<DetailScreen> {
     _entryController.dispose();
     _inhalationTimeController.dispose();
     super.dispose();
+  }
+
+  void _deleteEntry() {
+    Get.defaultDialog(
+      title: 'Confirm Delete',
+      middleText: 'Are you sure you want to delete this entry?',
+      textCancel: 'Cancel',
+      textConfirm: 'Delete',
+      onConfirm: () {
+        Get.find<EntriesController>().deleteEntry(widget.index);
+        Get.back(); // close the dialog
+        Get.back(); // return to home screen
+      },
+    );
   }
 
   @override
@@ -230,6 +240,12 @@ class _DetailScreenState extends State<DetailScreen> {
             Get.find<EntriesController>().renameEntry(widget.index, newName);
           },
         ),
+        actions: [
+          IconButton(
+            icon: Icon(Icons.delete),
+            onPressed: _deleteEntry,
+          ),
+        ],
       ),
       body: SingleChildScrollView(
         padding: EdgeInsets.all(16),
@@ -324,11 +340,9 @@ class _CustomChartWidgetState extends State<CustomChartWidget> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    // Use the theme's text color for axes, ticks, and labels.
     final axisColor = theme.textTheme.bodySmall?.color ?? Colors.black;
 
     return GestureDetector(
-      // When the user long-presses, check if a point is nearby and delete it.
       onLongPressStart: (details) {
         RenderBox box = context.findRenderObject() as RenderBox;
         Offset localPos = box.globalToLocal(details.globalPosition);
@@ -356,7 +370,6 @@ class _CustomChartWidgetState extends State<CustomChartWidget> {
         double minY = bounds['minY']!;
         double maxY = bounds['maxY']!;
         bool found = false;
-        // Check if the touch is near any point.
         for (int i = 0; i < chartController.points.length; i++) {
           Offset point = chartController.points[i];
           Offset pixel = dataToPixel(point, box.size, minX, maxX, minY, maxY);
@@ -365,7 +378,6 @@ class _CustomChartWidgetState extends State<CustomChartWidget> {
             break;
           }
         }
-        // If no point was found, add a new one immediately.
         if (!found) {
           double newDataX = minX + (localPos.dx / box.size.width) * (maxX - minX);
           double newDataY = minY + ((box.size.height - localPos.dy) / box.size.height) * (maxY - minY);
@@ -383,7 +395,6 @@ class _CustomChartWidgetState extends State<CustomChartWidget> {
         double minY = bounds['minY']!;
         double maxY = bounds['maxY']!;
         bool found = false;
-        // Check if the touch is near any point.
         for (int i = 0; i < chartController.points.length; i++) {
           Offset point = chartController.points[i];
           Offset pixel = dataToPixel(point, box.size, minX, maxX, minY, maxY);
@@ -408,7 +419,6 @@ class _CustomChartWidgetState extends State<CustomChartWidget> {
           double dy = localPos.dy - dragStart!.dy;
           double scaleX = (maxX - minX) / box.size.width;
           double scaleY = (maxY - minY) / box.size.height;
-          // Invert y-axis movement.
           double newX = chartController.points[draggedIndex].dx + dx * scaleX;
           double newY = chartController.points[draggedIndex].dy - dy * scaleY;
           chartController.updatePoint(draggedIndex, Offset(newX, newY));
@@ -525,8 +535,7 @@ class LineChartPainter extends CustomPainter {
       ..color = axisColor
       ..strokeWidth = 1;
     // x-axis: from bottom left to bottom right.
-    canvas.drawLine(
-        Offset(0, size.height), Offset(size.width, size.height), axisPaint);
+    canvas.drawLine(Offset(0, size.height), Offset(size.width, size.height), axisPaint);
     // y-axis: from bottom left to top left.
     canvas.drawLine(Offset(0, size.height), Offset(0, 0), axisPaint);
 
@@ -545,7 +554,7 @@ class LineChartPainter extends CustomPainter {
           axisPaint);
       // Draw text.
       TextPainter tp = TextPainter(
-        text: TextSpan(text: tickValue.toStringAsFixed(1), style: textStyle),
+        text: TextSpan(text: tickValue.toStringAsFixed(0), style: textStyle),
         textDirection: TextDirection.ltr,
       );
       tp.layout();
@@ -627,7 +636,7 @@ class LineChartPainter extends CustomPainter {
       // X-axis coordinate label.
       String xDragText = draggedPoint!.dx.toStringAsFixed(1);
       TextPainter xDragPainter = TextPainter(
-        text: TextSpan(text: xDragText, style: TextStyle(color: Colors.red, fontSize: 12)),
+        text: TextSpan(text: xDragText, style: TextStyle(color: chartColor, fontSize: 12)),
         textDirection: TextDirection.ltr,
       );
       xDragPainter.layout();
@@ -637,7 +646,7 @@ class LineChartPainter extends CustomPainter {
       // Y-axis coordinate label (as percentage).
       String yDragText = (draggedPoint!.dy * 100).toStringAsFixed(0) + "%";
       TextPainter yDragPainter = TextPainter(
-        text: TextSpan(text: yDragText, style: TextStyle(color: Colors.red, fontSize: 12)),
+        text: TextSpan(text: yDragText, style: TextStyle(color: chartColor, fontSize: 12)),
         textDirection: TextDirection.ltr,
       );
       yDragPainter.layout();
