@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:fl_chart/fl_chart.dart';
 import 'package:hive/hive.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -14,17 +13,18 @@ void main() async {
   // Initialize our controllers so they’re available app-wide.
   Get.put(SettingsController());
   Get.put(EntriesController());
+  Get.put(GraphController());
   runApp(MyApp());
 }
 
 class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    // Using Obx here to reactively change the theme.
+    // Using Obx to reactively update the theme.
     return Obx(() {
       final isDark = Get.find<SettingsController>().isDarkMode.value;
       return GetMaterialApp(
-        title: 'GetX Hive Example',
+        title: 'GetX Custom Chart Example',
         theme: ThemeData.light(),
         darkTheme: ThemeData.dark(),
         themeMode: isDark ? ThemeMode.dark : ThemeMode.light,
@@ -93,7 +93,7 @@ class MainScreen extends StatelessWidget {
           IconButton(
             icon: Icon(Icons.settings),
             onPressed: () {
-              // Use Get.defaultDialog to show the settings dialog.
+              // Use Get.defaultDialog for the settings dialog.
               Get.defaultDialog(
                 title: 'Settings',
                 content: Obx(
@@ -117,8 +117,8 @@ class MainScreen extends StatelessWidget {
           itemBuilder: (context, index) {
             return ListTile(
               title: Text(entriesController.entries[index]),
-              onTap: () => Get.to(() =>
-                  DetailScreen(entry: entriesController.entries[index])),
+              onTap: () => Get.to(
+                  () => DetailScreen(entry: entriesController.entries[index])),
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -195,93 +195,97 @@ class GraphScreen extends StatefulWidget {
 }
 
 class _GraphScreenState extends State<GraphScreen> {
-  final GraphController graphController = Get.put(GraphController());
+  final GraphController graphController = Get.find<GraphController>();
   int draggedIndex = -1;
   Offset? dragStart;
+
+  // Computes the minimum and maximum values for x and y.
+  Map<String, double> computeBounds() {
+    List<Offset> points = graphController.points;
+    double minX = points.first.dx;
+    double maxX = points.first.dx;
+    double minY = points.first.dy;
+    double maxY = points.first.dy;
+    for (Offset p in points) {
+      if (p.dx < minX) minX = p.dx;
+      if (p.dx > maxX) maxX = p.dx;
+      if (p.dy < minY) minY = p.dy;
+      if (p.dy > maxY) maxY = p.dy;
+    }
+    return {'minX': minX, 'maxX': maxX, 'minY': minY, 'maxY': maxY};
+  }
+
+  // Converts a data point to a pixel position within the given size.
+  Offset dataToPixel(
+      Offset data, Size size, double minX, double maxX, double minY, double maxY) {
+    double x = (data.dx - minX) / ((maxX - minX) == 0 ? 1 : (maxX - minX)) *
+        size.width;
+    double y = size.height -
+        ((data.dy - minY) / ((maxY - minY) == 0 ? 1 : (maxY - minY)) *
+            size.height);
+    return Offset(x, y);
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text(widget.title)),
       body: GestureDetector(
-        onPanUpdate: (details) {
+        onPanStart: (details) {
           RenderBox box = context.findRenderObject() as RenderBox;
-          Offset localPosition = box.globalToLocal(details.globalPosition);
-          if (draggedIndex >= 0 && dragStart != null) {
-            // Calculate chart boundaries dynamically from current points.
-            double minX = graphController.points
-                .reduce((curr, next) => next.x < curr.x ? next : curr)
-                .x;
-            double maxX = graphController.points
-                .reduce((curr, next) => next.x > curr.x ? next : curr)
-                .x;
-            double minY = graphController.points
-                .reduce((curr, next) => next.y < curr.y ? next : curr)
-                .y;
-            double maxY = graphController.points
-                .reduce((curr, next) => next.y > curr.y ? next : curr)
-                .y;
-            double dx = localPosition.dx - dragStart!.dx;
-            double dy = localPosition.dy - dragStart!.dy;
-            double newX = graphController.points[draggedIndex].x +
-                dx * (maxX - minX) / box.size.width;
-            double newY = graphController.points[draggedIndex].y +
-                dy * (maxY - minY) / box.size.height;
-            graphController.updatePoint(draggedIndex, FlSpot(newX, newY));
-            dragStart = localPosition;
+          Offset localPos = box.globalToLocal(details.globalPosition);
+          var bounds = computeBounds();
+          double minX = bounds['minX']!;
+          double maxX = bounds['maxX']!;
+          double minY = bounds['minY']!;
+          double maxY = bounds['maxY']!;
+          // Check if the touch is near any of the points.
+          for (int i = 0; i < graphController.points.length; i++) {
+            Offset point = graphController.points[i];
+            Offset pixel = dataToPixel(point, box.size, minX, maxX, minY, maxY);
+            print('Match? $pixel = $localPos');
+            if ((pixel - localPos).distance < 20) {
+              draggedIndex = i;
+              dragStart = localPos;
+              break;
+            }
           }
+        },
+        onPanUpdate: (details) {
+          if (draggedIndex != -1 && dragStart != null) {
+            RenderBox box = context.findRenderObject() as RenderBox;
+            Offset localPos = box.globalToLocal(details.globalPosition);
+            var bounds = computeBounds();
+            double minX = bounds['minX']!;
+            double maxX = bounds['maxX']!;
+            double minY = bounds['minY']!;
+            double maxY = bounds['maxY']!;
+            double dx = localPos.dx - dragStart!.dx;
+            double dy = localPos.dy - dragStart!.dy;
+            // Scale factors from pixel movement to data space.
+            double scaleX = (maxX - minX) / box.size.width;
+            double scaleY = (maxY - minY) / box.size.height;
+            // Note the inversion for the y-axis.
+            double newX = graphController.points[draggedIndex].dx + dx * scaleX;
+            double newY = graphController.points[draggedIndex].dy - dy * scaleY;
+            graphController.updatePoint(draggedIndex, Offset(newX, newY));
+            dragStart = localPos;
+          }
+        },
+        onPanEnd: (details) {
+          draggedIndex = -1;
+          dragStart = null;
         },
         child: Center(
           child: Container(
             height: 300,
+            width: double.infinity,
             child: Obx(() {
-              // Determine boundaries based on the current points.
-              double minX = graphController.points
-                  .reduce((curr, next) => next.x < curr.x ? next : curr)
-                  .x;
-              double maxX = graphController.points
-                  .reduce((curr, next) => next.x > curr.x ? next : curr)
-                  .x;
-              double minY = graphController.points
-                  .reduce((curr, next) => next.y < curr.y ? next : curr)
-                  .y;
-              double maxY = graphController.points
-                  .reduce((curr, next) => next.y > curr.y ? next : curr)
-                  .y;
-
-              LineChartData lineChartData = LineChartData(
-                minX: minX,
-                maxX: maxX,
-                minY: minY,
-                maxY: maxY,
-                lineBarsData: [
-                  LineChartBarData(
-                    spots: List.of(graphController.points),
-                    isCurved: true,
-                    barWidth: 4,
-                    color: Colors.blue,
-                    belowBarData: BarAreaData(show: false),
-                  ),
-                ],
-                lineTouchData: LineTouchData(
-                  touchCallback: (FlTouchEvent event, LineTouchResponse? response) {
-                    if (event is FlPanEndEvent) {
-                      draggedIndex = -1;
-                    }
-                    if (response != null &&
-                        response.lineBarSpots != null &&
-                        draggedIndex < 0) {
-                      final spot = response.lineBarSpots!.first;
-                      draggedIndex = spot.spotIndex;
-                      dragStart = event.localPosition;
-                      print(
-                          'selected: ${spot.x}, ${spot.y} (${dragStart?.dx}, ${dragStart?.dy})');
-                    }
-                  },
-                  handleBuiltInTouches: true,
-                ),
+              return CustomPaint(
+                painter: LineChartPainter(
+                    points: graphController.points.toList()),
+                child: Container(),
               );
-              return LineChart(lineChartData);
             }),
           ),
         ),
@@ -291,16 +295,77 @@ class _GraphScreenState extends State<GraphScreen> {
 }
 
 class GraphController extends GetxController {
-  var points = <FlSpot>[].obs;
+  // Using Offset to represent each point (x, y)
+  var points = <Offset>[].obs;
 
   @override
   void onInit() {
-    points.assignAll([FlSpot(1, 1), FlSpot(2, 2), FlSpot(3, 3)]);
+    points.assignAll([Offset(1, 1), Offset(2, 2), Offset(3, 3)]);
     super.onInit();
   }
 
-  void updatePoint(int index, FlSpot newSpot) {
-    points[index] = newSpot;
+  void updatePoint(int index, Offset newPoint) {
+    points[index] = newPoint;
     points.refresh();
   }
+}
+
+class LineChartPainter extends CustomPainter {
+  final List<Offset> points;
+
+  LineChartPainter({required this.points});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (points.isEmpty) return;
+
+    // Calculate boundaries.
+    double minX = points.first.dx;
+    double maxX = points.first.dx;
+    double minY = points.first.dy;
+    double maxY = points.first.dy;
+    for (Offset p in points) {
+      if (p.dx < minX) minX = p.dx;
+      if (p.dx > maxX) maxX = p.dx;
+      if (p.dy < minY) minY = p.dy;
+      if (p.dy > maxY) maxY = p.dy;
+    }
+    double rangeX = maxX - minX;
+    double rangeY = maxY - minY;
+    if (rangeX == 0) rangeX = 1;
+    if (rangeY == 0) rangeY = 1;
+
+    // Map data points to canvas coordinates.
+    List<Offset> mappedPoints = points.map((p) {
+      double x = (p.dx - minX) / rangeX * size.width;
+      double y = size.height - ((p.dy - minY) / rangeY * size.height);
+      return Offset(x, y);
+    }).toList();
+
+    // Paint for the connecting line.
+    Paint linePaint = Paint()
+      ..color = Colors.blue
+      ..strokeWidth = 4
+      ..style = PaintingStyle.stroke;
+
+    // Paint for the data points.
+    Paint circlePaint = Paint()
+      ..color = Colors.red
+      ..style = PaintingStyle.fill;
+
+    Path path = Path();
+    path.moveTo(mappedPoints[0].dx, mappedPoints[0].dy);
+    for (int i = 1; i < mappedPoints.length; i++) {
+      path.lineTo(mappedPoints[i].dx, mappedPoints[i].dy);
+    }
+    canvas.drawPath(path, linePaint);
+
+    // Draw circles for each data point.
+    for (Offset p in mappedPoints) {
+      canvas.drawCircle(p, 6, circlePaint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }
