@@ -292,6 +292,7 @@ class _CustomChartWidgetState extends State<CustomChartWidget> {
   late ChartController chartController;
   int draggedIndex = -1;
   Offset? dragStart;
+  Offset? currentDragPoint; // Track the currently dragged point (data coordinates)
 
   // Compute data bounds (min and max for x and y).
   Map<String, double> computeBounds(List<Offset> points) {
@@ -370,15 +371,21 @@ class _CustomChartWidgetState extends State<CustomChartWidget> {
           double newY = chartController.points[draggedIndex].dy - dy * scaleY;
           chartController.updatePoint(draggedIndex, Offset(newX, newY));
           dragStart = localPos;
+          setState(() {
+            currentDragPoint = chartController.points[draggedIndex];
+          });
         }
       },
       onPanEnd: (details) {
         draggedIndex = -1;
         dragStart = null;
+        setState(() {
+          currentDragPoint = null;
+        });
       },
       child: Container(
-        height: 250, // decreased height from 300 to 250
-        width: double.infinity,
+        height: 250, 
+        width: MediaQuery.of(context).size.width * 0.8, // decreased width
         child: Obx(() {
           // Determine axis labels based on the widget tag.
           String xAxisLabel;
@@ -399,6 +406,7 @@ class _CustomChartWidgetState extends State<CustomChartWidget> {
               xAxisLabel: xAxisLabel,
               yAxisLabel: yAxisLabel,
               axisColor: axisColor,
+              draggedPoint: currentDragPoint, // pass the currently dragged point
             ),
             child: Container(),
           );
@@ -413,6 +421,7 @@ class LineChartPainter extends CustomPainter {
   final String xAxisLabel;
   final String yAxisLabel;
   final Color axisColor; // Color for axes, ticks, and labels.
+  final Offset? draggedPoint; // The point currently being dragged (if any)
   // Chart line and data points remain blue.
   final Color chartColor = Colors.blue;
 
@@ -421,6 +430,7 @@ class LineChartPainter extends CustomPainter {
     required this.xAxisLabel,
     required this.yAxisLabel,
     required this.axisColor,
+    this.draggedPoint,
   });
 
   @override
@@ -450,19 +460,39 @@ class LineChartPainter extends CustomPainter {
       return Offset(x, y);
     }).toList();
 
+    // -------------------------
+    // Draw background grid.
+    // -------------------------
+    const int tickCount = 5;
+    Paint gridPaint = Paint()
+      ..color = Colors.grey.withOpacity(0.3)
+      ..strokeWidth = 1;
+    // Vertical grid lines.
+    for (int i = 0; i <= tickCount; i++) {
+      double x = i * size.width / tickCount;
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), gridPaint);
+    }
+    // Horizontal grid lines.
+    for (int i = 0; i <= tickCount; i++) {
+      double y = size.height - i * size.height / tickCount;
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), gridPaint);
+    }
+
+    // -------------------------
     // Draw axes.
+    // -------------------------
     Paint axisPaint = Paint()
       ..color = axisColor
       ..strokeWidth = 1;
-
     // x-axis: from bottom left to bottom right.
     canvas.drawLine(
         Offset(0, size.height), Offset(size.width, size.height), axisPaint);
     // y-axis: from bottom left to top left.
     canvas.drawLine(Offset(0, size.height), Offset(0, 0), axisPaint);
 
+    // -------------------------
     // Draw ticks and labels.
-    const int tickCount = 5;
+    // -------------------------
     final textStyle = TextStyle(color: axisColor, fontSize: 10);
     // x-axis ticks.
     for (int i = 0; i <= tickCount; i++) {
@@ -479,24 +509,25 @@ class LineChartPainter extends CustomPainter {
         textDirection: TextDirection.ltr,
       );
       tp.layout();
-      tp.paint(canvas,
-          Offset(tickX - tp.width / 2, size.height + 2));
+      tp.paint(canvas, Offset(tickX - tp.width / 2, size.height + 2));
     }
-    // y-axis ticks.
+    // y-axis ticks (displayed as percentages).
     for (int i = 0; i <= tickCount; i++) {
       double tickY = size.height - i * size.height / tickCount;
       double tickValue = minY + (rangeY) * i / tickCount;
       canvas.drawLine(Offset(0, tickY), Offset(5, tickY), axisPaint);
+      String tickText = (tickValue * 100).toStringAsFixed(0) + "%";
       TextPainter tp = TextPainter(
-        text: TextSpan(text: tickValue.toStringAsFixed(1), style: textStyle),
+        text: TextSpan(text: tickText, style: textStyle),
         textDirection: TextDirection.ltr,
       );
       tp.layout();
-      tp.paint(canvas,
-          Offset(-tp.width - 2, tickY - tp.height / 2));
+      tp.paint(canvas, Offset(-tp.width - 2, tickY - tp.height / 2));
     }
 
+    // -------------------------
     // Draw axis labels.
+    // -------------------------
     final labelStyle = TextStyle(color: axisColor, fontSize: 12);
     // x-axis label: centered below the axis.
     TextPainter xLabelPainter = TextPainter(
@@ -521,12 +552,13 @@ class LineChartPainter extends CustomPainter {
     yLabelPainter.paint(canvas, Offset(0, 0));
     canvas.restore();
 
+    // -------------------------
     // Draw the chart line.
+    // -------------------------
     Paint linePaint = Paint()
       ..color = chartColor
       ..strokeWidth = 4
       ..style = PaintingStyle.stroke;
-
     Path path = Path();
     path.moveTo(mappedPoints.first.dx, mappedPoints.first.dy);
     for (int i = 1; i < mappedPoints.length; i++) {
@@ -534,12 +566,44 @@ class LineChartPainter extends CustomPainter {
     }
     canvas.drawPath(path, linePaint);
 
+    // -------------------------
     // Draw data points.
+    // -------------------------
     Paint circlePaint = Paint()
       ..color = chartColor
       ..style = PaintingStyle.fill;
     for (Offset p in mappedPoints) {
       canvas.drawCircle(p, 6, circlePaint);
+    }
+
+    // -------------------------
+    // If dragging, draw coordinate labels.
+    // -------------------------
+    if (draggedPoint != null) {
+      // Convert dragged data point to canvas coordinates.
+      double dragPixelX = (draggedPoint!.dx - minX) / rangeX * size.width;
+      double dragPixelY = size.height -
+          ((draggedPoint!.dy - minY) / rangeY * size.height);
+
+      // X-axis coordinate label.
+      String xDragText = draggedPoint!.dx.toStringAsFixed(1);
+      TextPainter xDragPainter = TextPainter(
+        text: TextSpan(text: xDragText, style: TextStyle(color: Colors.red, fontSize: 12)),
+        textDirection: TextDirection.ltr,
+      );
+      xDragPainter.layout();
+      xDragPainter.paint(
+          canvas, Offset(dragPixelX - xDragPainter.width / 2, size.height - 20));
+
+      // Y-axis coordinate label (as percentage).
+      String yDragText = (draggedPoint!.dy * 100).toStringAsFixed(0) + "%";
+      TextPainter yDragPainter = TextPainter(
+        text: TextSpan(text: yDragText, style: TextStyle(color: Colors.red, fontSize: 12)),
+        textDirection: TextDirection.ltr,
+      );
+      yDragPainter.layout();
+      yDragPainter.paint(
+          canvas, Offset(-yDragPainter.width - 5, dragPixelY - yDragPainter.height / 2));
     }
   }
 
