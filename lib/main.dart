@@ -8,16 +8,20 @@ import 'package:path_provider/path_provider.dart';
 // Import our custom model.
 import 'chemical.dart';
 
+double clip(double value, double lower, double upper) {
+  return value < lower ? lower : (value > upper ? upper : value);
+}
+
 Offset sliderConstraint(Offset newCoord, List<Offset> points, int index) {
   double lower = index > 0 ? points[index - 1].dy : 0;
   double upper = index < points.length - 1 ? points[index + 1].dy : 1;
-  return Offset(points[index].dx, max(lower, min(upper, newCoord.dy)));
+  return Offset(points[index].dx, clip(newCoord.dy, lower, upper));
 }
 
 Offset kinematicsConstraint(Offset newCoord, List<Offset> points, int index) {
   double lower = index > 0 ? points[index - 1].dx : 0;
   double upper = index < points.length - 1 ? points[index + 1].dx : 1000;
-  return Offset(max(lower, min(upper, newCoord.dx)), max(0.0, min(1.0, newCoord.dy)));
+  return Offset(clip(newCoord.dx, lower, upper), clip(newCoord.dy, 0.0, 1.0));
 }
 
 void main() async {
