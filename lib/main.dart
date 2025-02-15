@@ -310,7 +310,7 @@ class _DetailScreenState extends State<DetailScreen> {
             SizedBox(height: 8),
             Center(
               child: CustomChartWidget(
-                  tag: "slider", onDragEnd: _persistChanges),
+                  tag: "slider", xAxisLabel: "position", yAxisLabel: "dose", onDragEnd: _persistChanges),
             ),
             SizedBox(height: 32),
             Text('Kinematics',
@@ -318,7 +318,7 @@ class _DetailScreenState extends State<DetailScreen> {
             SizedBox(height: 8),
             Center(
               child: CustomChartWidget(
-                  tag: "kinematics", onDragEnd: _persistChanges),
+                  tag: "kinematics", xAxisLabel: "time [m]", yAxisLabel: "intensity", onDragEnd: _persistChanges),
             ),
           ],
         ),
@@ -340,8 +340,10 @@ class ChartController extends GetxController {
 
 class CustomChartWidget extends StatefulWidget {
   final String tag;
+  final String xAxisLabel;
+  final String yAxisLabel;
   final VoidCallback? onDragEnd;
-  const CustomChartWidget({Key? key, required this.tag, this.onDragEnd})
+  const CustomChartWidget({Key? key, required this.tag, required this.xAxisLabel, required this.yAxisLabel, this.onDragEnd})
       : super(key: key);
   @override
   _CustomChartWidgetState createState() => _CustomChartWidgetState();
@@ -481,25 +483,13 @@ class _CustomChartWidgetState extends State<CustomChartWidget> {
         height: 250,
         width: MediaQuery.of(context).size.width * 0.8,
         child: Obx(() {
-          String xAxisLabel;
-          String yAxisLabel;
-          if (widget.tag == "slider") {
-            xAxisLabel = "position";
-            yAxisLabel = "dose";
-          } else if (widget.tag == "kinematics") {
-            xAxisLabel = "time [m]";
-            yAxisLabel = "intensity";
-          } else {
-            xAxisLabel = "";
-            yAxisLabel = "";
-          }
           return CustomPaint(
             painter: LineChartPainter(
               points: chartController.points.toList(),
-              xAxisLabel: xAxisLabel,
-              yAxisLabel: yAxisLabel,
+              xAxisLabel: widget.xAxisLabel,
+              yAxisLabel: widget.yAxisLabel,
               axisColor: axisColor,
-              chartColor: theme.primaryColor,
+              chartColor: theme.colorScheme.primary,
               draggedPoint: currentDragPoint,
             ),
             child: Container(),
