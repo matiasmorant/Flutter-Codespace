@@ -29,8 +29,18 @@ class MyApp extends StatelessWidget {
       final isDark = Get.find<SettingsController>().isDarkMode.value;
       return GetMaterialApp(
         title: 'GetX Custom Chart Example',
-        theme: ThemeData.light(),
-        darkTheme: ThemeData.dark(),
+        theme: ThemeData.light().copyWith(
+           appBarTheme: AppBarTheme(
+              // iconTheme: IconThemeData(color: Colors.black),
+              color: ThemeData.light().colorScheme.primaryContainer
+          ),
+        ),
+        darkTheme: ThemeData.dark().copyWith(
+           appBarTheme: AppBarTheme(
+              // iconTheme: IconThemeData(color: Colors.black),
+              color: ThemeData.dark().colorScheme.primaryContainer
+          )
+        ),
         themeMode: isDark ? ThemeMode.dark : ThemeMode.light,
         home: MainScreen(),
       );
@@ -253,10 +263,7 @@ class _DetailScreenState extends State<DetailScreen> {
       appBar: AppBar(
         title: TextField(
           controller: _chemicalController,
-          style: TextStyle(
-            color: Theme.of(context).colorScheme.onPrimary,
-            fontSize: 18,
-          ),
+          style: TextStyle(fontSize: 18,),
           cursorColor: Theme.of(context).colorScheme.onPrimary,
           decoration: InputDecoration(
             hintText: 'Enter chemical name',
