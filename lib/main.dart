@@ -1,18 +1,24 @@
+import 'dart:math';
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:hive/hive.dart';
 import 'package:path_provider/path_provider.dart';
 
+// Import our custom model.
+import 'chemical.dart';
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final dir = await getApplicationDocumentsDirectory();
   Hive.init(dir.path);
-  await Hive.openBox('entries');
+  Hive.registerAdapter(ChemicalAdapter());
+  await Hive.openBox<Chemical>('chemicals');
   await Hive.openBox('settings');
 
   // Initialize global controllers.
   Get.put(SettingsController());
-  Get.put(EntriesController());
+  Get.put(ChemicalsController());
   runApp(MyApp());
 }
 
@@ -49,36 +55,51 @@ class SettingsController extends GetxController {
   }
 }
 
-class EntriesController extends GetxController {
-  late Box entriesBox;
-  var entries = <String>[].obs;
+class ChemicalsController extends GetxController {
+  late Box<Chemical> chemicalsBox;
+  var chemicals = <Chemical>[].obs;
 
   @override
   void onInit() {
-    entriesBox = Hive.box('entries');
-    entries.assignAll(entriesBox.values.cast<String>().toList());
+    chemicalsBox = Hive.box<Chemical>('chemicals');
+    chemicals.assignAll(chemicalsBox.values.toList());
     super.onInit();
   }
 
-  void addEntry() {
-    String name = 'Chemical Substance ${entries.length + 1}';
-    entriesBox.add(name);
-    entries.add(name);
+  void addChemical() {
+    final newChemical = Chemical(
+      name: 'Chemical Substance ${chemicals.length + 1}',
+      inhalationTime: 10,
+      sliderPoints: [
+        {"x": 0, "y": 0},
+        {"x": 1, "y": 0.25},
+        {"x": 2, "y": 0.5},
+        {"x": 3, "y": 0.75},
+        {"x": 4, "y": 1},
+      ],
+      kinematicsPoints: [
+        {"x": 0, "y": 1},
+        {"x": 60, "y": 0},
+      ],
+    );
+    chemicalsBox.add(newChemical);
+    chemicals.add(newChemical);
   }
 
-  void deleteEntry(int index) {
-    entriesBox.deleteAt(index);
-    entries.removeAt(index);
+  void deleteChemical(int index) {
+    chemicalsBox.deleteAt(index);
+    chemicals.removeAt(index);
   }
 
-  void renameEntry(int index, String newName) {
-    entriesBox.putAt(index, newName);
-    entries[index] = newName;
-    entries.refresh();
+  void renameChemical(int index, String newName) {
+    final chemical = chemicals[index];
+    chemical.name = newName;
+    chemical.save();
+    chemicals[index] = chemical;
+    chemicals.refresh();
   }
 }
 
-// MainScreen now uses a stateful widget to track the currently selected entry.
 class MainScreen extends StatefulWidget {
   @override
   _MainScreenState createState() => _MainScreenState();
@@ -86,15 +107,14 @@ class MainScreen extends StatefulWidget {
 
 class _MainScreenState extends State<MainScreen> {
   int selectedIndex = -1;
-
   @override
   Widget build(BuildContext context) {
-    final entriesController = Get.find<EntriesController>();
+    final chemicalsController = Get.find<ChemicalsController>();
     final settingsController = Get.find<SettingsController>();
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('Entries'),
+        title: Text('Chemicals'),
         actions: [
           IconButton(
             icon: Icon(Icons.more_vert),
@@ -118,11 +138,12 @@ class _MainScreenState extends State<MainScreen> {
       ),
       body: Obx(
         () => ListView.builder(
-          itemCount: entriesController.entries.length,
+          itemCount: chemicalsController.chemicals.length,
           itemBuilder: (context, index) {
             bool isSelected = index == selectedIndex;
+            Chemical chemical = chemicalsController.chemicals[index];
             return ListTile(
-              title: Text(entriesController.entries[index]),
+              title: Text(chemical.name),
               tileColor:
                   isSelected ? Theme.of(context).highlightColor : null,
               onTap: () {
@@ -130,27 +151,18 @@ class _MainScreenState extends State<MainScreen> {
                   selectedIndex = index;
                 });
               },
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // Pencil icon routes to the detail screen for editing.
-                  IconButton(
-                    icon: Icon(Icons.edit),
-                    onPressed: () {
-                      Get.to(() => DetailScreen(
-                            entry: entriesController.entries[index],
-                            index: index,
-                          ));
-                    },
-                  ),
-                ],
+              trailing: IconButton(
+                icon: Icon(Icons.edit),
+                onPressed: () {
+                  Get.to(() => DetailScreen(chemical: chemical, index: index));
+                },
               ),
             );
           },
         ),
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: entriesController.addEntry,
+        onPressed: chemicalsController.addChemical,
         child: Icon(Icons.add),
       ),
     );
@@ -158,92 +170,112 @@ class _MainScreenState extends State<MainScreen> {
 }
 
 class DetailScreen extends StatefulWidget {
-  final String entry;
+  final Chemical chemical;
   final int index;
-  DetailScreen({required this.entry, required this.index});
+  DetailScreen({required this.chemical, required this.index});
 
   @override
   _DetailScreenState createState() => _DetailScreenState();
 }
 
 class _DetailScreenState extends State<DetailScreen> {
-  late TextEditingController _entryController;
+  late TextEditingController _chemicalController;
   late TextEditingController _inhalationTimeController;
 
   @override
   void initState() {
     super.initState();
-    _entryController = TextEditingController(text: widget.entry);
-    _inhalationTimeController = TextEditingController(text: "10");
-  }
+    _chemicalController = TextEditingController(text: widget.chemical.name);
+    _inhalationTimeController =
+        TextEditingController(text: widget.chemical.inhalationTime.toString());
 
-  @override
-  void dispose() {
-    _entryController.dispose();
-    _inhalationTimeController.dispose();
-    super.dispose();
-  }
-
-  void _deleteEntry() {
-    Get.defaultDialog(
-      title: 'Confirm Delete',
-      middleText: 'Are you sure you want to delete this entry?',
-      textCancel: 'Cancel',
-      textConfirm: 'Delete',
-      onConfirm: () {
-        Get.find<EntriesController>().deleteEntry(widget.index);
-        Get.back(); // close the dialog
-        Get.back(); // return to home screen
-      },
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    // Ensure two separate ChartControllers exist with distinct tags.
+    // Initialize ChartControllers with existing points.
     if (!Get.isRegistered<ChartController>(tag: "slider")) {
       Get.put(
           ChartController(
-              initialPoints: [Offset(0, 0), Offset(1, 0.25), Offset(2, 0.5), Offset(3, 0.75), Offset(4, 1)]),
+              initialPoints: widget.chemical.sliderPoints
+                  .map((map) => Offset(map["x"] ?? 0, map["y"] ?? 0))
+                  .toList()),
           tag: "slider");
     }
     if (!Get.isRegistered<ChartController>(tag: "kinematics")) {
       Get.put(
           ChartController(
-              initialPoints: [Offset(0, 1), Offset(60, 0)]),
+              initialPoints: widget.chemical.kinematicsPoints
+                  .map((map) => Offset(map["x"] ?? 0, map["y"] ?? 0))
+                  .toList()),
           tag: "kinematics");
     }
+  }
 
+  @override
+  void dispose() {
+    _chemicalController.dispose();
+    _inhalationTimeController.dispose();
+    super.dispose();
+  }
+
+  void _deleteChemical() {
+    Get.defaultDialog(
+      title: 'Confirm Delete',
+      middleText: 'Are you sure you want to delete this chemical?',
+      textCancel: 'Cancel',
+      textConfirm: 'Delete',
+      onConfirm: () {
+        Get.find<ChemicalsController>().deleteChemical(widget.index);
+        Get.back(); // close dialog
+        Get.back(); // return to home screen
+      },
+    );
+  }
+
+  // Persist the updated data to Hive.
+  void _persistChanges() {
+    final chemicalsController = Get.find<ChemicalsController>();
+    Chemical currentChemical = chemicalsController.chemicals[widget.index];
+    currentChemical.name = _chemicalController.text;
+    currentChemical.inhalationTime =
+        int.tryParse(_inhalationTimeController.text) ?? 10;
+    currentChemical.sliderPoints = Get.find<ChartController>(tag: "slider")
+        .points
+        .map((offset) => {"x": offset.dx, "y": offset.dy})
+        .toList();
+    currentChemical.kinematicsPoints = Get.find<ChartController>(tag: "kinematics")
+        .points
+        .map((offset) => {"x": offset.dx, "y": offset.dy})
+        .toList();
+    currentChemical.save();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        // Editable entry name using theme-based colors.
         title: TextField(
-          controller: _entryController,
+          controller: _chemicalController,
           style: TextStyle(
             color: Theme.of(context).colorScheme.onPrimary,
             fontSize: 18,
           ),
           cursorColor: Theme.of(context).colorScheme.onPrimary,
           decoration: InputDecoration(
-            hintText: 'Enter entry name',
+            hintText: 'Enter chemical name',
             hintStyle: TextStyle(
-              color:
-                  Theme.of(context).colorScheme.onPrimary.withOpacity(0.6),
+              color: Theme.of(context).colorScheme.onPrimary.withOpacity(0.6),
             ),
             border: InputBorder.none,
-            // Use the app bar's background color for the text field.
             filled: true,
             fillColor: Theme.of(context).appBarTheme.backgroundColor ??
                 Theme.of(context).primaryColor,
           ),
           onSubmitted: (newName) {
-            Get.find<EntriesController>().renameEntry(widget.index, newName);
+            Get.find<ChemicalsController>().renameChemical(widget.index, newName);
           },
         ),
         actions: [
           IconButton(
             icon: Icon(Icons.delete),
-            onPressed: _deleteEntry,
+            onPressed: _deleteChemical,
           ),
         ],
       ),
@@ -252,7 +284,6 @@ class _DetailScreenState extends State<DetailScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Smaller inhalation time input with a fixed width and maxLength 2.
             Container(
               width: 80,
               child: TextField(
@@ -263,20 +294,25 @@ class _DetailScreenState extends State<DetailScreen> {
                 ),
                 keyboardType: TextInputType.number,
                 maxLength: 2,
+                onSubmitted: (value) => _persistChanges(),
               ),
             ),
             SizedBox(height: 16),
             Text('Slider',
                 style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
             SizedBox(height: 8),
-            // Center the chart horizontally.
-            Center(child: CustomChartWidget(tag: "slider")),
+            Center(
+              child: CustomChartWidget(
+                  tag: "slider", onDragEnd: _persistChanges),
+            ),
             SizedBox(height: 32),
             Text('Kinematics',
                 style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
             SizedBox(height: 8),
-            // Center the chart horizontally.
-            Center(child: CustomChartWidget(tag: "kinematics")),
+            Center(
+              child: CustomChartWidget(
+                  tag: "kinematics", onDragEnd: _persistChanges),
+            ),
           ],
         ),
       ),
@@ -285,13 +321,10 @@ class _DetailScreenState extends State<DetailScreen> {
 }
 
 class ChartController extends GetxController {
-  // Holds chart data points.
   var points = <Offset>[].obs;
-
   ChartController({required List<Offset> initialPoints}) {
     points.assignAll(initialPoints);
   }
-
   void updatePoint(int index, Offset newPoint) {
     points[index] = newPoint;
     points.refresh();
@@ -300,8 +333,9 @@ class ChartController extends GetxController {
 
 class CustomChartWidget extends StatefulWidget {
   final String tag;
-  const CustomChartWidget({Key? key, required this.tag}) : super(key: key);
-
+  final VoidCallback? onDragEnd;
+  const CustomChartWidget({Key? key, required this.tag, this.onDragEnd})
+      : super(key: key);
   @override
   _CustomChartWidgetState createState() => _CustomChartWidgetState();
 }
@@ -310,9 +344,9 @@ class _CustomChartWidgetState extends State<CustomChartWidget> {
   late ChartController chartController;
   int draggedIndex = -1;
   Offset? dragStart;
-  Offset? currentDragPoint; // Track the currently dragged point (data coordinates)
+  Offset? currentDragPoint;
 
-  // Compute data bounds (min and max for x, but fixed for y).
+  // Compute data bounds.
   Map<String, double> computeBounds(List<Offset> points) {
     double minX = points.first.dx;
     double maxX = points.first.dx;
@@ -323,7 +357,7 @@ class _CustomChartWidgetState extends State<CustomChartWidget> {
     return {'minX': minX, 'maxX': maxX, 'minY': 0, 'maxY': 1};
   }
 
-  // Convert a data point into canvas coordinates.
+  // Convert a data point to canvas coordinates.
   Offset dataToPixel(
       Offset data, Size size, double minX, double maxX, double minY, double maxY) {
     double x = (data.dx - minX) / ((maxX - minX) == 0 ? 1 : (maxX - minX)) * size.width;
@@ -341,7 +375,6 @@ class _CustomChartWidgetState extends State<CustomChartWidget> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final axisColor = theme.textTheme.bodySmall?.color ?? Colors.black;
-
     return GestureDetector(
       onLongPressStart: (details) {
         RenderBox box = context.findRenderObject() as RenderBox;
@@ -394,14 +427,12 @@ class _CustomChartWidgetState extends State<CustomChartWidget> {
         double maxX = bounds['maxX']!;
         double minY = bounds['minY']!;
         double maxY = bounds['maxY']!;
-        bool found = false;
         for (int i = 0; i < chartController.points.length; i++) {
           Offset point = chartController.points[i];
           Offset pixel = dataToPixel(point, box.size, minX, maxX, minY, maxY);
           if ((pixel - localPos).distance < 30) {
             draggedIndex = i;
             dragStart = localPos;
-            found = true;
             break;
           }
         }
@@ -434,12 +465,15 @@ class _CustomChartWidgetState extends State<CustomChartWidget> {
         setState(() {
           currentDragPoint = null;
         });
+        // Persist changes when dragging ends.
+        if (widget.onDragEnd != null) {
+          widget.onDragEnd!();
+        }
       },
       child: Container(
-        height: 250, 
+        height: 250,
         width: MediaQuery.of(context).size.width * 0.8,
         child: Obx(() {
-          // Determine axis labels based on the widget tag.
           String xAxisLabel;
           String yAxisLabel;
           if (widget.tag == "slider") {
@@ -458,8 +492,8 @@ class _CustomChartWidgetState extends State<CustomChartWidget> {
               xAxisLabel: xAxisLabel,
               yAxisLabel: yAxisLabel,
               axisColor: axisColor,
-              chartColor: theme.primaryColor, // Use theme primary color for chart.
-              draggedPoint: currentDragPoint, // Pass the currently dragged point.
+              chartColor: theme.primaryColor,
+              draggedPoint: currentDragPoint,
             ),
             child: Container(),
           );
@@ -473,10 +507,9 @@ class LineChartPainter extends CustomPainter {
   final List<Offset> points;
   final String xAxisLabel;
   final String yAxisLabel;
-  final Color axisColor; // Color for axes, ticks, and labels.
-  final Color chartColor; // Use theme primary color for chart.
-  final Offset? draggedPoint; // The point currently being dragged (if any)
-
+  final Color axisColor;
+  final Color chartColor;
+  final Offset? draggedPoint;
   LineChartPainter({
     required this.points,
     required this.xAxisLabel,
@@ -485,12 +518,9 @@ class LineChartPainter extends CustomPainter {
     required this.chartColor,
     this.draggedPoint,
   });
-
   @override
   void paint(Canvas canvas, Size size) {
     if (points.isEmpty) return;
-
-    // Compute x boundaries from points; use fixed y-axis range 0 to 1.
     double minX = points.first.dx;
     double maxX = points.first.dx;
     for (Offset p in points) {
@@ -501,66 +531,47 @@ class LineChartPainter extends CustomPainter {
     if (rangeX == 0) rangeX = 1;
     double fixedMinY = 0;
     double fixedMaxY = 1;
-    double rangeY = fixedMaxY - fixedMinY; // Always 1.
-
-    // Map data points to canvas coordinates.
+    double rangeY = fixedMaxY - fixedMinY;
     List<Offset> mappedPoints = points.map((p) {
       double x = (p.dx - minX) / rangeX * size.width;
       double y = size.height - ((p.dy - fixedMinY) / rangeY * size.height);
       return Offset(x, y);
     }).toList();
 
-    // -------------------------
-    // Draw background grid.
-    // -------------------------
+    // Draw grid
     const int tickCount = 5;
     Paint gridPaint = Paint()
       ..color = Colors.grey.withOpacity(0.3)
       ..strokeWidth = 1;
-    // Vertical grid lines.
     for (int i = 0; i <= tickCount; i++) {
       double x = i * size.width / tickCount;
       canvas.drawLine(Offset(x, 0), Offset(x, size.height), gridPaint);
     }
-    // Horizontal grid lines.
     for (int i = 0; i <= tickCount; i++) {
       double y = size.height - i * size.height / tickCount;
       canvas.drawLine(Offset(0, y), Offset(size.width, y), gridPaint);
     }
 
-    // -------------------------
-    // Draw axes.
-    // -------------------------
+    // Draw axes
     Paint axisPaint = Paint()
       ..color = axisColor
       ..strokeWidth = 1;
-    // x-axis: from bottom left to bottom right.
     canvas.drawLine(Offset(0, size.height), Offset(size.width, size.height), axisPaint);
-    // y-axis: from bottom left to top left.
     canvas.drawLine(Offset(0, size.height), Offset(0, 0), axisPaint);
 
-    // -------------------------
-    // Draw ticks and labels.
-    // -------------------------
-    final textStyle = TextStyle(color: axisColor, fontSize: 10);
-    // x-axis ticks.
-    for (int i = 0; i <= tickCount; i++) {
+     // Draw ticks and labels.
+     final textStyle = TextStyle(color: axisColor, fontSize: 10);
+     for (int i = 0; i <= tickCount; i++) {
       double tickX = i * size.width / tickCount;
       double tickValue = minX + (rangeX) * i / tickCount;
-      // Tick mark.
-      canvas.drawLine(
-          Offset(tickX, size.height),
-          Offset(tickX, size.height - 5),
-          axisPaint);
-      // Draw text.
-      TextPainter tp = TextPainter(
+      canvas.drawLine(Offset(tickX, size.height), Offset(tickX, size.height - 5), axisPaint);
+       TextPainter tp = TextPainter(
         text: TextSpan(text: tickValue.toStringAsFixed(0), style: textStyle),
-        textDirection: TextDirection.ltr,
-      );
-      tp.layout();
-      tp.paint(canvas, Offset(tickX - tp.width / 2, size.height + 2));
-    }
-    // y-axis ticks (displayed as percentages).
+         textDirection: TextDirection.ltr,
+       );
+       tp.layout();
+       tp.paint(canvas, Offset(tickX - tp.width / 2, size.height + 2));
+     }
     for (int i = 0; i <= tickCount; i++) {
       double tickY = size.height - i * size.height / tickCount;
       double tickValue = fixedMinY + (rangeY) * i / tickCount;
@@ -572,39 +583,26 @@ class LineChartPainter extends CustomPainter {
       );
       tp.layout();
       tp.paint(canvas, Offset(-tp.width - 2, tickY - tp.height / 2));
-    }
-
-    // -------------------------
-    // Draw axis labels.
-    // -------------------------
+     }
     final labelStyle = TextStyle(color: axisColor, fontSize: 12);
-    // x-axis label: centered below the axis.
     TextPainter xLabelPainter = TextPainter(
       text: TextSpan(text: xAxisLabel, style: labelStyle),
       textDirection: TextDirection.ltr,
     );
     xLabelPainter.layout();
-    xLabelPainter.paint(
-        canvas,
-        Offset(size.width / 2 - xLabelPainter.width / 2,
-            size.height + 15));
-
-    // y-axis label: rotated and centered along the y-axis.
+    xLabelPainter.paint(canvas, Offset(size.width / 2 - xLabelPainter.width / 2, size.height + 15));
     canvas.save();
     TextPainter yLabelPainter = TextPainter(
       text: TextSpan(text: yAxisLabel, style: labelStyle),
       textDirection: TextDirection.ltr,
     );
     yLabelPainter.layout();
-    // Adjusted offset to move label further left.
     canvas.translate(-40, size.height / 2 + yLabelPainter.width / 2);
     canvas.rotate(-3.14159 / 2);
     yLabelPainter.paint(canvas, Offset(0, 0));
     canvas.restore();
 
-    // -------------------------
-    // Draw the chart line.
-    // -------------------------
+    // Draw line
     Paint linePaint = Paint()
       ..color = chartColor
       ..strokeWidth = 4
@@ -616,9 +614,7 @@ class LineChartPainter extends CustomPainter {
     }
     canvas.drawPath(path, linePaint);
 
-    // -------------------------
-    // Draw data points.
-    // -------------------------
+    // Draw data points
     Paint circlePaint = Paint()
       ..color = chartColor
       ..style = PaintingStyle.fill;
@@ -626,14 +622,10 @@ class LineChartPainter extends CustomPainter {
       canvas.drawCircle(p, 6, circlePaint);
     }
 
-    // -------------------------
-    // If dragging, draw coordinate labels.
-    // -------------------------
+    // Optionally draw labels for the currently dragged point.
     if (draggedPoint != null) {
       double dragPixelX = (draggedPoint!.dx - minX) / rangeX * size.width;
       double dragPixelY = size.height - ((draggedPoint!.dy - fixedMinY) / rangeY * size.height);
-
-      // X-axis coordinate label.
       String xDragText = draggedPoint!.dx.toStringAsFixed(1);
       TextPainter xDragPainter = TextPainter(
         text: TextSpan(text: xDragText, style: TextStyle(color: chartColor, fontSize: 12)),
@@ -654,7 +646,6 @@ class LineChartPainter extends CustomPainter {
           canvas, Offset(-yDragPainter.width - 5, dragPixelY - yDragPainter.height / 2));
     }
   }
-
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }
