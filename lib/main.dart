@@ -330,7 +330,11 @@ class _DetailScreenState extends State<DetailScreen> {
                 yAxisLabel: "dose",
                 onDragEnd: _persistChanges,
                 constraint: sliderConstraint,
-                allowCreateDelete: false,  // Set to false for slider chart
+                allowCreateDelete: false,
+                minX: 0,
+                maxX: 4,
+                minY: 0,
+                maxY: 1,
               ),
             ),
             SizedBox(height: 32),
@@ -344,7 +348,10 @@ class _DetailScreenState extends State<DetailScreen> {
                 yAxisLabel: "intensity",
                 onDragEnd: _persistChanges,
                 constraint: kinematicsConstraint,
-                // allowCreateDelete defaults to true for kinematics chart
+                minX: 0,
+                // maxX: 60,
+                minY: 0,
+                maxY: 1,
               ),
             ),
           ],
@@ -370,18 +377,25 @@ class CustomChartWidget extends StatefulWidget {
   final String xAxisLabel;
   final String yAxisLabel;
   final VoidCallback? onDragEnd;
-  final Offset Function(Offset newCoord, List<Offset> points, int index)?
-      constraint;
-  final bool allowCreateDelete;  // Add this property
+  final Offset Function(Offset newCoord, List<Offset> points, int index)? constraint;
+  final bool allowCreateDelete;
+  double? minX;
+  double? maxX;
+  double? minY;
+  double? maxY;
 
-  const CustomChartWidget({
+  CustomChartWidget({
     Key? key,
     required this.tag,
     required this.xAxisLabel,
     required this.yAxisLabel,
     this.onDragEnd,
     this.constraint,
-    this.allowCreateDelete = true,  // Default to true
+    this.allowCreateDelete = true,
+    this.minX,
+    this.maxX,
+    this.minY,
+    this.maxY,
   }) : super(key: key);
 
   @override
@@ -394,22 +408,27 @@ class _CustomChartWidgetState extends State<CustomChartWidget> {
   Offset? dragStart;
   Offset? currentDragPoint;
 
-  // Compute data bounds.
-  Map<String, double> computeBounds(List<Offset> points) {
-    double minX = points.first.dx;
-    double maxX = points.first.dx;
-    for (Offset p in points) {
-      if (p.dx < minX) minX = p.dx;
-      if (p.dx > maxX) maxX = p.dx;
-    }
-    return {'minX': minX, 'maxX': maxX, 'minY': 0, 'maxY': 1};
+  // Update data to pixel conversion method
+  Offset dataToPixel(Offset data, Size size) {
+    double minX = widget.minX!;
+    double maxX = widget.maxX!;
+    double minY = widget.minY!;
+    double maxY = widget.maxY!;
+    
+    double x = (data.dx - minX) / (maxX - minX) * size.width;
+    double y = size.height - ((data.dy - minY) / (maxY - minY) * size.height);
+    return Offset(x, y);
   }
 
-  // Convert a data point to canvas coordinates.
-  Offset dataToPixel(
-      Offset data, Size size, double minX, double maxX, double minY, double maxY) {
-    double x = (data.dx - minX) / ((maxX - minX) == 0 ? 1 : (maxX - minX)) * size.width;
-    double y = size.height - ((data.dy - minY) / ((maxY - minY) == 0 ? 1 : (maxY - minY)) * size.height);
+  // Convert pixel coordinates back to data coordinates
+  Offset pixelToData(Offset pixel, Size size) {
+    double minX = widget.minX!;
+    double maxX = widget.maxX!;
+    double minY = widget.minY!;
+    double maxY = widget.maxY!;
+    
+    double x = minX + (pixel.dx / size.width) * (maxX - minX);
+    double y = minY + ((size.height - pixel.dy) / size.height) * (maxY - minY);
     return Offset(x, y);
   }
 
@@ -423,19 +442,19 @@ class _CustomChartWidgetState extends State<CustomChartWidget> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final axisColor = theme.textTheme.bodySmall?.color ?? Colors.black;
+    widget.minX= widget.minX ?? chartController.points.map((p) => p.dx).reduce(min);
+    widget.maxX= widget.maxX ?? chartController.points.map((p) => p.dx).reduce(max);
+    widget.minY= widget.minY ?? chartController.points.map((p) => p.dy).reduce(min);
+    widget.maxY= widget.maxY ?? chartController.points.map((p) => p.dy).reduce(max);
+
     return GestureDetector(
       onLongPressStart: (details) {
-        if (!widget.allowCreateDelete) return;  // Add this check
+        if (!widget.allowCreateDelete) return;
         RenderBox box = context.findRenderObject() as RenderBox;
         Offset localPos = box.globalToLocal(details.globalPosition);
-        var bounds = computeBounds(chartController.points);
-        double minX = bounds['minX']!;
-        double maxX = bounds['maxX']!;
-        double minY = bounds['minY']!;
-        double maxY = bounds['maxY']!;
+        
         for (int i = 0; i < chartController.points.length; i++) {
-          Offset point = chartController.points[i];
-          Offset pixel = dataToPixel(point, box.size, minX, maxX, minY, maxY);
+          Offset pixel = dataToPixel(chartController.points[i], box.size);
           if ((pixel - localPos).distance < 30) {
             chartController.points.removeAt(i);
             chartController.points.refresh();
@@ -444,27 +463,21 @@ class _CustomChartWidgetState extends State<CustomChartWidget> {
         }
       },
       onPanDown: (details) {
-        if (!widget.allowCreateDelete) return;  // Add this check
+        if (!widget.allowCreateDelete) return;
         RenderBox box = context.findRenderObject() as RenderBox;
         Offset localPos = box.globalToLocal(details.globalPosition);
-        var bounds = computeBounds(chartController.points);
-        double minX = bounds['minX']!;
-        double maxX = bounds['maxX']!;
-        double minY = bounds['minY']!;
-        double maxY = bounds['maxY']!;
+        
         bool found = false;
         for (int i = 0; i < chartController.points.length; i++) {
-          Offset point = chartController.points[i];
-          Offset pixel = dataToPixel(point, box.size, minX, maxX, minY, maxY);
+          Offset pixel = dataToPixel(chartController.points[i], box.size);
           if ((pixel - localPos).distance < 30) {
             found = true;
             break;
           }
         }
         if (!found) {
-          double newDataX = minX + (localPos.dx / box.size.width) * (maxX - minX);
-          double newDataY = minY + ((box.size.height - localPos.dy) / box.size.height) * (maxY - minY);
-          chartController.points.add(Offset(newDataX, newDataY));
+          Offset newPoint = pixelToData(localPos, box.size);
+          chartController.points.add(newPoint);
           chartController.points.sort((a, b) => a.dx.compareTo(b.dx));
           chartController.points.refresh();
         }
@@ -472,14 +485,9 @@ class _CustomChartWidgetState extends State<CustomChartWidget> {
       onPanStart: (details) {
         RenderBox box = context.findRenderObject() as RenderBox;
         Offset localPos = box.globalToLocal(details.globalPosition);
-        var bounds = computeBounds(chartController.points);
-        double minX = bounds['minX']!;
-        double maxX = bounds['maxX']!;
-        double minY = bounds['minY']!;
-        double maxY = bounds['maxY']!;
+        
         for (int i = 0; i < chartController.points.length; i++) {
-          Offset point = chartController.points[i];
-          Offset pixel = dataToPixel(point, box.size, minX, maxX, minY, maxY);
+          Offset pixel = dataToPixel(chartController.points[i], box.size);
           if ((pixel - localPos).distance < 30) {
             draggedIndex = i;
             dragStart = localPos;
@@ -491,22 +499,22 @@ class _CustomChartWidgetState extends State<CustomChartWidget> {
         if (draggedIndex != -1 && dragStart != null) {
           RenderBox box = context.findRenderObject() as RenderBox;
           Offset localPos = box.globalToLocal(details.globalPosition);
-          var bounds = computeBounds(chartController.points);
-          double minX = bounds['minX']!;
-          double maxX = bounds['maxX']!;
-          double minY = bounds['minY']!;
-          double maxY = bounds['maxY']!;
           double dx = localPos.dx - dragStart!.dx;
           double dy = localPos.dy - dragStart!.dy;
-          double scaleX = (maxX - minX) / box.size.width;
-          double scaleY = (maxY - minY) / box.size.height;
-          double newX = chartController.points[draggedIndex].dx + dx * scaleX;
-          double newY = chartController.points[draggedIndex].dy - dy * scaleY;
-          Offset newPoint = Offset(newX, newY);
-          // Apply constraint if provided.
+          
+          Offset oldPixel = dataToPixel(chartController.points[draggedIndex], box.size);
+          Offset newPixel = Offset(oldPixel.dx + dx, oldPixel.dy + dy);
+          Offset newPoint = pixelToData(newPixel, box.size);
+          
           if (widget.constraint != null) {
             newPoint = widget.constraint!(newPoint, chartController.points.toList(), draggedIndex);
           }
+
+          if (newPoint.dx < widget.minX!) widget.minX = newPoint.dx;
+          if (newPoint.dx > widget.maxX!) widget.maxX = newPoint.dx;
+          if (newPoint.dy < widget.minY!) widget.minY = newPoint.dy;
+          if (newPoint.dy > widget.maxY!) widget.maxY = newPoint.dy;
+          
           chartController.updatePoint(draggedIndex, newPoint);
           dragStart = localPos;
           setState(() {
@@ -537,6 +545,10 @@ class _CustomChartWidgetState extends State<CustomChartWidget> {
               axisColor: axisColor,
               chartColor: theme.colorScheme.primary,
               draggedPoint: currentDragPoint,
+              minX: widget.minX!,
+              maxX: widget.maxX!,
+              minY: widget.minY!,
+              maxY: widget.maxY!,
             ),
             child: Container(),
           );
@@ -553,6 +565,10 @@ class LineChartPainter extends CustomPainter {
   final Color axisColor;
   final Color chartColor;
   final Offset? draggedPoint;
+  double minX;
+  double maxX;
+  double minY;
+  double maxY;
   
   LineChartPainter({
     required this.points,
@@ -561,21 +577,16 @@ class LineChartPainter extends CustomPainter {
     required this.axisColor,
     required this.chartColor,
     this.draggedPoint,
+    required this.minX,
+    required this.maxX,
+    required this.minY,
+    required this.maxY,
   });
   
   @override
   void paint(Canvas canvas, Size size) {
     if (points.isEmpty) return;
-    double minX = points.first.dx;
-    double maxX = points.first.dx;
-    double minY = points.first.dy;
-    double maxY = points.first.dy;
-    for (Offset p in points) {
-      if (p.dx < minX) minX = p.dx;
-      if (p.dx > maxX) maxX = p.dx;
-      if (p.dy < minY) minY = p.dy;
-      if (p.dy > maxY) maxY = p.dy;
-    }
+    
     double rangeX = maxX - minX;
     if (rangeX == 0) rangeX = 1;
     double rangeY = maxY - minY;
