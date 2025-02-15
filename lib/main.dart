@@ -326,6 +326,7 @@ class _DetailScreenState extends State<DetailScreen> {
                 yAxisLabel: "dose",
                 onDragEnd: _persistChanges,
                 constraint: sliderConstraint,
+                allowCreateDelete: false,  // Set to false for slider chart
               ),
             ),
             SizedBox(height: 32),
@@ -339,6 +340,7 @@ class _DetailScreenState extends State<DetailScreen> {
                 yAxisLabel: "intensity",
                 onDragEnd: _persistChanges,
                 constraint: kinematicsConstraint,
+                // allowCreateDelete defaults to true for kinematics chart
               ),
             ),
           ],
@@ -366,6 +368,7 @@ class CustomChartWidget extends StatefulWidget {
   final VoidCallback? onDragEnd;
   final Offset Function(Offset newCoord, List<Offset> points, int index)?
       constraint;
+  final bool allowCreateDelete;  // Add this property
 
   const CustomChartWidget({
     Key? key,
@@ -374,6 +377,7 @@ class CustomChartWidget extends StatefulWidget {
     required this.yAxisLabel,
     this.onDragEnd,
     this.constraint,
+    this.allowCreateDelete = true,  // Default to true
   }) : super(key: key);
 
   @override
@@ -417,6 +421,7 @@ class _CustomChartWidgetState extends State<CustomChartWidget> {
     final axisColor = theme.textTheme.bodySmall?.color ?? Colors.black;
     return GestureDetector(
       onLongPressStart: (details) {
+        if (!widget.allowCreateDelete) return;  // Add this check
         RenderBox box = context.findRenderObject() as RenderBox;
         Offset localPos = box.globalToLocal(details.globalPosition);
         var bounds = computeBounds(chartController.points);
@@ -435,6 +440,7 @@ class _CustomChartWidgetState extends State<CustomChartWidget> {
         }
       },
       onPanDown: (details) {
+        if (!widget.allowCreateDelete) return;  // Add this check
         RenderBox box = context.findRenderObject() as RenderBox;
         Offset localPos = box.globalToLocal(details.globalPosition);
         var bounds = computeBounds(chartController.points);
