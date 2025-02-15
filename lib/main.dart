@@ -8,6 +8,18 @@ import 'package:path_provider/path_provider.dart';
 // Import our custom model.
 import 'chemical.dart';
 
+Offset sliderConstraint(Offset newCoord, List<Offset> points, int index) {
+  double lower = index > 0 ? points[index - 1].dy : 0;
+  double upper = index < points.length - 1 ? points[index + 1].dy : 1;
+  return Offset(points[index].dx, max(lower, min(upper, newCoord.dy)));
+}
+
+Offset kinematicsConstraint(Offset newCoord, List<Offset> points, int index) {
+  double lower = index > 0 ? points[index - 1].dx : 0;
+  double upper = index < points.length - 1 ? points[index + 1].dx : 1000;
+  return Offset(max(lower, min(upper, newCoord.dx)), max(0.0, min(1.0, newCoord.dy)));
+}
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final dir = await getApplicationDocumentsDirectory();
@@ -310,7 +322,12 @@ class _DetailScreenState extends State<DetailScreen> {
             SizedBox(height: 8),
             Center(
               child: CustomChartWidget(
-                  tag: "slider", xAxisLabel: "position", yAxisLabel: "dose", onDragEnd: _persistChanges),
+                tag: "slider",
+                xAxisLabel: "position",
+                yAxisLabel: "dose",
+                onDragEnd: _persistChanges,
+                constraint: sliderConstraint,
+              ),
             ),
             SizedBox(height: 32),
             Text('Kinematics',
@@ -318,7 +335,12 @@ class _DetailScreenState extends State<DetailScreen> {
             SizedBox(height: 8),
             Center(
               child: CustomChartWidget(
-                  tag: "kinematics", xAxisLabel: "time [m]", yAxisLabel: "intensity", onDragEnd: _persistChanges),
+                tag: "kinematics",
+                xAxisLabel: "time [m]",
+                yAxisLabel: "intensity",
+                onDragEnd: _persistChanges,
+                constraint: kinematicsConstraint,
+              ),
             ),
           ],
         ),
@@ -343,8 +365,18 @@ class CustomChartWidget extends StatefulWidget {
   final String xAxisLabel;
   final String yAxisLabel;
   final VoidCallback? onDragEnd;
-  const CustomChartWidget({Key? key, required this.tag, required this.xAxisLabel, required this.yAxisLabel, this.onDragEnd})
-      : super(key: key);
+  final Offset Function(Offset newCoord, List<Offset> points, int index)?
+      constraint;
+
+  const CustomChartWidget({
+    Key? key,
+    required this.tag,
+    required this.xAxisLabel,
+    required this.yAxisLabel,
+    this.onDragEnd,
+    this.constraint,
+  }) : super(key: key);
+
   @override
   _CustomChartWidgetState createState() => _CustomChartWidgetState();
 }
@@ -461,7 +493,12 @@ class _CustomChartWidgetState extends State<CustomChartWidget> {
           double scaleY = (maxY - minY) / box.size.height;
           double newX = chartController.points[draggedIndex].dx + dx * scaleX;
           double newY = chartController.points[draggedIndex].dy - dy * scaleY;
-          chartController.updatePoint(draggedIndex, Offset(newX, newY));
+          Offset newPoint = Offset(newX, newY);
+          // Apply constraint if provided.
+          if (widget.constraint != null) {
+            newPoint = widget.constraint!(newPoint, chartController.points.toList(), draggedIndex);
+          }
+          chartController.updatePoint(draggedIndex, newPoint);
           dragStart = localPos;
           setState(() {
             currentDragPoint = chartController.points[draggedIndex];
@@ -507,6 +544,7 @@ class LineChartPainter extends CustomPainter {
   final Color axisColor;
   final Color chartColor;
   final Offset? draggedPoint;
+  
   LineChartPainter({
     required this.points,
     required this.xAxisLabel,
@@ -515,6 +553,7 @@ class LineChartPainter extends CustomPainter {
     required this.chartColor,
     this.draggedPoint,
   });
+  
   @override
   void paint(Canvas canvas, Size size) {
     if (points.isEmpty) return;
@@ -534,7 +573,7 @@ class LineChartPainter extends CustomPainter {
       double y = size.height - ((p.dy - fixedMinY) / rangeY * size.height);
       return Offset(x, y);
     }).toList();
-
+  
     // Draw grid
     const int tickCount = 5;
     Paint gridPaint = Paint()
@@ -548,7 +587,7 @@ class LineChartPainter extends CustomPainter {
       double y = size.height - i * size.height / tickCount;
       canvas.drawLine(Offset(0, y), Offset(size.width, y), gridPaint);
     }
-
+  
     // Draw axes
     Paint axisPaint = Paint()
       ..color = axisColor
@@ -580,7 +619,7 @@ class LineChartPainter extends CustomPainter {
       );
       tp.layout();
       tp.paint(canvas, Offset(-tp.width - 2, tickY - tp.height / 2));
-     }
+    }
     final labelStyle = TextStyle(color: axisColor, fontSize: 12);
     TextPainter xLabelPainter = TextPainter(
       text: TextSpan(text: xAxisLabel, style: labelStyle),
@@ -598,7 +637,7 @@ class LineChartPainter extends CustomPainter {
     canvas.rotate(-3.14159 / 2);
     yLabelPainter.paint(canvas, Offset(0, 0));
     canvas.restore();
-
+  
     // Draw line
     Paint linePaint = Paint()
       ..color = chartColor
@@ -610,7 +649,7 @@ class LineChartPainter extends CustomPainter {
       path.lineTo(mappedPoints[i].dx, mappedPoints[i].dy);
     }
     canvas.drawPath(path, linePaint);
-
+  
     // Draw data points
     Paint circlePaint = Paint()
       ..color = chartColor
@@ -618,7 +657,7 @@ class LineChartPainter extends CustomPainter {
     for (Offset p in mappedPoints) {
       canvas.drawCircle(p, 6, circlePaint);
     }
-
+  
     // Optionally draw labels for the currently dragged point.
     if (draggedPoint != null) {
       double dragPixelX = (draggedPoint!.dx - minX) / rangeX * size.width;
@@ -643,6 +682,7 @@ class LineChartPainter extends CustomPainter {
           canvas, Offset(-yDragPainter.width - 5, dragPixelY - yDragPainter.height / 2));
     }
   }
+  
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }
