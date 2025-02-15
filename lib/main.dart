@@ -40,7 +40,6 @@ class MyApp extends StatelessWidget {
     return Obx(() {
       final isDark = Get.find<SettingsController>().isDarkMode.value;
       return GetMaterialApp(
-        title: 'GetX Custom Chart Example',
         theme: ThemeData.light().copyWith(
            appBarTheme: AppBarTheme(
               // iconTheme: IconThemeData(color: Colors.black),
@@ -559,23 +558,27 @@ class LineChartPainter extends CustomPainter {
     if (points.isEmpty) return;
     double minX = points.first.dx;
     double maxX = points.first.dx;
+    double minY = points.first.dy;
+    double maxY = points.first.dy;
     for (Offset p in points) {
       if (p.dx < minX) minX = p.dx;
       if (p.dx > maxX) maxX = p.dx;
+      if (p.dy < minY) minY = p.dy;
+      if (p.dy > maxY) maxY = p.dy;
     }
     double rangeX = maxX - minX;
     if (rangeX == 0) rangeX = 1;
-    double fixedMinY = 0;
-    double fixedMaxY = 1;
-    double rangeY = fixedMaxY - fixedMinY;
+    double rangeY = maxY - minY;
+    if (rangeY == 0) rangeY = 1;
+
     List<Offset> mappedPoints = points.map((p) {
       double x = (p.dx - minX) / rangeX * size.width;
-      double y = size.height - ((p.dy - fixedMinY) / rangeY * size.height);
+      double y = size.height - ((p.dy - minY) / rangeY * size.height);
       return Offset(x, y);
     }).toList();
-  
+
     // Draw grid
-    const int tickCount = 5;
+    const int tickCount = 4;
     Paint gridPaint = Paint()
       ..color = Colors.grey.withOpacity(0.3)
       ..strokeWidth = 1;
@@ -610,7 +613,7 @@ class LineChartPainter extends CustomPainter {
      }
     for (int i = 0; i <= tickCount; i++) {
       double tickY = size.height - i * size.height / tickCount;
-      double tickValue = fixedMinY + (rangeY) * i / tickCount;
+      double tickValue = minY + (rangeY) * i / tickCount;
       canvas.drawLine(Offset(0, tickY), Offset(5, tickY), axisPaint);
       String tickText = (tickValue * 100).toStringAsFixed(0) + "%";
       TextPainter tp = TextPainter(
@@ -661,7 +664,7 @@ class LineChartPainter extends CustomPainter {
     // Optionally draw labels for the currently dragged point.
     if (draggedPoint != null) {
       double dragPixelX = (draggedPoint!.dx - minX) / rangeX * size.width;
-      double dragPixelY = size.height - ((draggedPoint!.dy - fixedMinY) / rangeY * size.height);
+      double dragPixelY = size.height - ((draggedPoint!.dy - minY) / rangeY * size.height);
       String xDragText = draggedPoint!.dx.toStringAsFixed(1);
       TextPainter xDragPainter = TextPainter(
         text: TextSpan(text: xDragText, style: TextStyle(color: chartColor, fontSize: 12)),
