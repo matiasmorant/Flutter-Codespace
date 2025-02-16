@@ -320,38 +320,55 @@ class _DetailScreenState extends State<DetailScreen> {
               ),
             ),
             SizedBox(height: 16),
-            Text('Slider',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('Slider',
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                IconButton(
+                  icon: Icon(Icons.undo),
+                  onPressed: () => Get.find<ChartController>(tag: "slider").undo(),
+                ),
+              ],
+            ),
             SizedBox(height: 8),
             Center(
               child: CustomChartWidget(
                 tag: "slider",
                 xAxisLabel: "position",
                 yAxisLabel: "dose",
-                onDragEnd: _persistChanges,
                 constraint: sliderConstraint,
                 allowCreateDelete: false,
                 minX: 0,
                 maxX: 4,
                 minY: 0,
                 maxY: 1,
+                onPersist: _persistChanges,
               ),
             ),
             SizedBox(height: 32),
-            Text('Kinematics',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('Kinematics',
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                IconButton(
+                  icon: Icon(Icons.undo),
+                  onPressed: () => Get.find<ChartController>(tag: "kinematics").undo(),
+                ),
+              ],
+            ),
             SizedBox(height: 8),
             Center(
               child: CustomChartWidget(
                 tag: "kinematics",
                 xAxisLabel: "time [m]",
                 yAxisLabel: "intensity",
-                onDragEnd: _persistChanges,
                 constraint: kinematicsConstraint,
                 minX: 0,
-                // maxX: 60,
                 minY: 0,
                 maxY: 1,
+                onPersist: _persistChanges,
               ),
             ),
           ],
@@ -363,12 +380,34 @@ class _DetailScreenState extends State<DetailScreen> {
 
 class ChartController extends GetxController {
   var points = <Offset>[].obs;
+  final undoStack = <List<Offset>>[];
+
   ChartController({required List<Offset> initialPoints}) {
     points.assignAll(initialPoints);
   }
+
   void updatePoint(int index, Offset newPoint) {
     points[index] = newPoint;
     points.refresh();
+  }
+
+  void addPoint(Offset newPoint) {
+    undoStack.add(List.from(points));
+    points.add(newPoint);
+    points.sort((a, b) => a.dx.compareTo(b.dx));
+    points.refresh();
+  }
+
+  void removePoint(int index) {
+    undoStack.add(List.from(points));
+    points.removeAt(index);
+    points.refresh();
+  }
+
+  void undo() {
+    if (undoStack.isNotEmpty) {
+      points.assignAll(undoStack.removeLast());
+    }
   }
 }
 
@@ -376,7 +415,6 @@ class CustomChartWidget extends StatefulWidget {
   final String tag;
   final String xAxisLabel;
   final String yAxisLabel;
-  final VoidCallback? onDragEnd;
   final Offset Function(Offset newCoord, List<Offset> points, int index)? constraint;
   final bool allowCreateDelete;
   double? minX;
@@ -387,19 +425,20 @@ class CustomChartWidget extends StatefulWidget {
   final bool maxXauto;
   final bool minYauto;
   final bool maxYauto;
+  final VoidCallback onPersist;
 
   CustomChartWidget({
     Key? key,
     required this.tag,
     required this.xAxisLabel,
     required this.yAxisLabel,
-    this.onDragEnd,
     this.constraint,
     this.allowCreateDelete = true,
     this.minX,
     this.maxX,
     this.minY,
     this.maxY,
+    required this.onPersist,
   }) : minXauto = (minX == null), maxXauto = (maxX == null), minYauto = (minY == null), maxYauto = (maxY == null),
    super(key: key);
 
@@ -462,8 +501,8 @@ class _CustomChartWidgetState extends State<CustomChartWidget> {
         for (int i = 0; i < chartController.points.length; i++) {
           Offset pixel = dataToPixel(chartController.points[i], box.size);
           if ((pixel - localPos).distance < 40) {
-            chartController.points.removeAt(i);
-            chartController.points.refresh();
+            chartController.removePoint(i);
+            widget.onPersist();
             break;
           }
         }
@@ -483,9 +522,8 @@ class _CustomChartWidgetState extends State<CustomChartWidget> {
         }
         if (!found) {
           Offset newPoint = pixelToData(localPos, box.size);
-          chartController.points.add(newPoint);
-          chartController.points.sort((a, b) => a.dx.compareTo(b.dx));
-          chartController.points.refresh();
+          chartController.addPoint(newPoint);
+          widget.onPersist();
         }
       },
       onPanStart: (details) {
@@ -497,6 +535,7 @@ class _CustomChartWidgetState extends State<CustomChartWidget> {
           if ((pixel - localPos).distance < 40) {
             draggedIndex = i;
             dragStart = localPos;
+            chartController.undoStack.add(List.from(chartController.points));
             break;
           }
         }
@@ -536,9 +575,7 @@ class _CustomChartWidgetState extends State<CustomChartWidget> {
           currentDragPoint = null;
         });
         // Persist changes when dragging ends.
-        if (widget.onDragEnd != null) {
-          widget.onDragEnd!();
-        }
+        widget.onPersist();
       },
       child: Container(
         height: 250,
