@@ -383,6 +383,10 @@ class CustomChartWidget extends StatefulWidget {
   double? maxX;
   double? minY;
   double? maxY;
+  final bool minXauto;
+  final bool maxXauto;
+  final bool minYauto;
+  final bool maxYauto;
 
   CustomChartWidget({
     Key? key,
@@ -396,7 +400,8 @@ class CustomChartWidget extends StatefulWidget {
     this.maxX,
     this.minY,
     this.maxY,
-  }) : super(key: key);
+  }) : minXauto = (minX == null), maxXauto = (maxX == null), minYauto = (minY == null), maxYauto = (maxY == null),
+   super(key: key);
 
   @override
   _CustomChartWidgetState createState() => _CustomChartWidgetState();
@@ -442,11 +447,12 @@ class _CustomChartWidgetState extends State<CustomChartWidget> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final axisColor = theme.textTheme.bodySmall?.color ?? Colors.black;
-    widget.minX= widget.minX ?? chartController.points.map((p) => p.dx).reduce(min);
-    widget.maxX= widget.maxX ?? chartController.points.map((p) => p.dx).reduce(max);
-    widget.minY= widget.minY ?? chartController.points.map((p) => p.dy).reduce(min);
-    widget.maxY= widget.maxY ?? chartController.points.map((p) => p.dy).reduce(max);
-
+    
+    widget.minX??= chartController.points.map((p) => p.dx).reduce(min);
+    widget.maxX??= chartController.points.map((p) => p.dx).reduce(max); 
+    widget.minY??= chartController.points.map((p) => p.dy).reduce(min);
+    widget.maxY??= chartController.points.map((p) => p.dy).reduce(max);
+    
     return GestureDetector(
       onLongPressStart: (details) {
         if (!widget.allowCreateDelete) return;
@@ -455,7 +461,7 @@ class _CustomChartWidgetState extends State<CustomChartWidget> {
         
         for (int i = 0; i < chartController.points.length; i++) {
           Offset pixel = dataToPixel(chartController.points[i], box.size);
-          if ((pixel - localPos).distance < 30) {
+          if ((pixel - localPos).distance < 40) {
             chartController.points.removeAt(i);
             chartController.points.refresh();
             break;
@@ -470,7 +476,7 @@ class _CustomChartWidgetState extends State<CustomChartWidget> {
         bool found = false;
         for (int i = 0; i < chartController.points.length; i++) {
           Offset pixel = dataToPixel(chartController.points[i], box.size);
-          if ((pixel - localPos).distance < 30) {
+          if ((pixel - localPos).distance < 40) {
             found = true;
             break;
           }
@@ -488,7 +494,7 @@ class _CustomChartWidgetState extends State<CustomChartWidget> {
         
         for (int i = 0; i < chartController.points.length; i++) {
           Offset pixel = dataToPixel(chartController.points[i], box.size);
-          if ((pixel - localPos).distance < 30) {
+          if ((pixel - localPos).distance < 40) {
             draggedIndex = i;
             dragStart = localPos;
             break;
@@ -509,13 +515,14 @@ class _CustomChartWidgetState extends State<CustomChartWidget> {
           if (widget.constraint != null) {
             newPoint = widget.constraint!(newPoint, chartController.points.toList(), draggedIndex);
           }
-
-          if (newPoint.dx < widget.minX!) widget.minX = newPoint.dx;
-          if (newPoint.dx > widget.maxX!) widget.maxX = newPoint.dx;
-          if (newPoint.dy < widget.minY!) widget.minY = newPoint.dy;
-          if (newPoint.dy > widget.maxY!) widget.maxY = newPoint.dy;
           
           chartController.updatePoint(draggedIndex, newPoint);
+
+          if(widget.minXauto) widget.minX = chartController.points.map((p) => p.dx).reduce(min);
+          if(widget.maxXauto) widget.maxX = chartController.points.map((p) => p.dx).reduce(max);
+          if(widget.minYauto) widget.minY = chartController.points.map((p) => p.dy).reduce(min);
+          if(widget.maxYauto) widget.maxY = chartController.points.map((p) => p.dy).reduce(max);
+
           dragStart = localPos;
           setState(() {
             currentDragPoint = chartController.points[draggedIndex];
