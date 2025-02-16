@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'package:file_picker/file_picker.dart';
+import 'package:permission_handler/permission_handler.dart'; // <-- new import
 
 // Import our custom model.
 import 'chemical.dart';
@@ -281,9 +282,20 @@ class _DetailScreenState extends State<DetailScreen> {
   }
 
   Future<void> _exportChemical() async {
+    PermissionStatus status;
+    status = await Permission.storage.request();
+    if (!status.isGranted) {
+      Get.snackbar('Permission Denied', 'Storage permission is required to export files.');
+      return;
+    }
     final chemical = widget.chemical;
     final json = jsonEncode(chemical.toJson());
-    final directory = await getExternalStorageDirectory();
+    // Try to get the downloads directory first.
+    Directory? directory = await getDownloadsDirectory();
+    // Fallback for platforms that don't support downloads directory.
+    if (directory == null) {
+      directory = await getExternalStorageDirectory();
+    }
     final file = File('${directory!.path}/${chemical.name}.json');
     await file.writeAsString(json);
     Get.snackbar('Export Successful', 'Chemical data exported to ${file.path}');
