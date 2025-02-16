@@ -4,6 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:hive/hive.dart';
 import 'package:path_provider/path_provider.dart';
+import 'dart:convert';
+import 'dart:io';
+import 'package:file_picker/file_picker.dart';
 
 // Import our custom model.
 import 'chemical.dart';
@@ -132,6 +135,21 @@ class MainScreen extends StatefulWidget {
 
 class _MainScreenState extends State<MainScreen> {
   int selectedIndex = -1;
+
+  Future<void> _importChemical() async {
+    final result = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['json']);
+    if (result != null) {
+      final file = File(result.files.single.path!);
+      final json = await file.readAsString();
+      final data = jsonDecode(json);
+      final chemical = Chemical.fromJson(data);
+      final chemicalsController = Get.find<ChemicalsController>();
+      chemicalsController.chemicalsBox.add(chemical);
+      chemicalsController.chemicals.add(chemical);
+      Get.snackbar('Import Successful', 'Chemical data imported successfully');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final chemicalsController = Get.find<ChemicalsController>();
@@ -146,15 +164,23 @@ class _MainScreenState extends State<MainScreen> {
             onPressed: () {
               Get.defaultDialog(
                 title: 'Settings',
-                content: Obx(
-                  () => SwitchListTile(
-                    title: Text('Dark Mode'),
-                    value: settingsController.isDarkMode.value,
-                    onChanged: (value) {
-                      settingsController.toggleTheme();
-                      Get.back();
-                    },
-                  ),
+                content: Column(
+                  children: [
+                    Obx(
+                      () => SwitchListTile(
+                        title: Text('Dark Mode'),
+                        value: settingsController.isDarkMode.value,
+                        onChanged: (value) {
+                          settingsController.toggleTheme();
+                          Get.back();
+                        },
+                      ),
+                    ),
+                    ElevatedButton(
+                      onPressed: _importChemical,
+                      child: Text('Import Chemical'),
+                    ),
+                  ],
                 ),
               );
             },
@@ -254,6 +280,15 @@ class _DetailScreenState extends State<DetailScreen> {
     );
   }
 
+  Future<void> _exportChemical() async {
+    final chemical = widget.chemical;
+    final json = jsonEncode(chemical.toJson());
+    final directory = await getExternalStorageDirectory();
+    final file = File('${directory!.path}/${chemical.name}.json');
+    await file.writeAsString(json);
+    Get.snackbar('Export Successful', 'Chemical data exported to ${file.path}');
+  }
+
   // Persist the updated data to Hive.
   void _persistChanges() {
     final chemicalsController = Get.find<ChemicalsController>();
@@ -274,6 +309,7 @@ class _DetailScreenState extends State<DetailScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final settingsController = Get.find<SettingsController>();
     return Scaffold(
       appBar: AppBar(
         title: TextField(
@@ -298,6 +334,32 @@ class _DetailScreenState extends State<DetailScreen> {
           IconButton(
             icon: Icon(Icons.delete),
             onPressed: _deleteChemical,
+          ),
+          IconButton(
+            icon: Icon(Icons.more_vert),
+            onPressed: () {
+              Get.defaultDialog(
+                title: 'Settings',
+                content: Column(
+                  children: [
+                    Obx(
+                      () => SwitchListTile(
+                        title: Text('Dark Mode'),
+                        value: settingsController.isDarkMode.value,
+                        onChanged: (value) {
+                          settingsController.toggleTheme();
+                          Get.back();
+                        },
+                      ),
+                    ),
+                    ElevatedButton(
+                      onPressed: _exportChemical,
+                      child: Text('Export Chemical'),
+                    ),
+                  ],
+                ),
+              );
+            },
           ),
         ],
       ),

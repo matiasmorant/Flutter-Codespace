@@ -22,4 +22,22 @@ class Chemical extends HiveObject {
     required this.sliderPoints,
     required this.kinematicsPoints,
   });
+
+  factory Chemical.fromJson(Map<String, dynamic> json) {
+    return Chemical(
+      name: json['name'],
+      inhalationTime: json['inhalationTime'],
+      sliderPoints: List<Map<String, double>>.from(json['sliderPoints']),
+      kinematicsPoints: List<Map<String, double>>.from(json['kinematicsPoints']),
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'name': name,
+      'inhalationTime': inhalationTime,
+      'sliderPoints': sliderPoints,
+      'kinematicsPoints': kinematicsPoints,
+    };
+  }
 }
