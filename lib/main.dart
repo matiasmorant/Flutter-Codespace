@@ -448,7 +448,7 @@ class _DetailScreenState extends State<DetailScreen> {
 
 class ChartController extends GetxController {
   var points = <Offset>[].obs;
-  final undoStack = <List<Offset>>[];
+  final RxList<List<Offset>> undoStack = <List<Offset>>[].obs;
 
   ChartController({required List<Offset> initialPoints}) {
     points.assignAll(initialPoints);
