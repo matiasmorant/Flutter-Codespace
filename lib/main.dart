@@ -325,10 +325,13 @@ class _DetailScreenState extends State<DetailScreen> {
               children: [
                 Text('Slider',
                     style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                IconButton(
-                  icon: Icon(Icons.undo),
-                  onPressed: () => Get.find<ChartController>(tag: "slider").undo(),
-                ),
+                Obx(() {
+                  final isUndoEnabled = Get.find<ChartController>(tag: "slider").undoStack.isNotEmpty;
+                  return IconButton(
+                    icon: Icon(Icons.undo, color: isUndoEnabled ? null : Theme.of(context).disabledColor),
+                    onPressed: () => Get.find<ChartController>(tag: "slider").undo(),
+                  );
+                }),
               ],
             ),
             SizedBox(height: 8),
@@ -352,10 +355,13 @@ class _DetailScreenState extends State<DetailScreen> {
               children: [
                 Text('Kinematics',
                     style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                IconButton(
-                  icon: Icon(Icons.undo),
-                  onPressed: () => Get.find<ChartController>(tag: "kinematics").undo(),
-                ),
+                Obx(() {
+                  final isUndoEnabled = Get.find<ChartController>(tag: "kinematics").undoStack.isNotEmpty;
+                  return IconButton(
+                    icon: Icon(Icons.undo, color: isUndoEnabled ? null : Theme.of(context).disabledColor),
+                    onPressed: () => Get.find<ChartController>(tag: "kinematics").undo(),
+                  );
+                }),
               ],
             ),
             SizedBox(height: 8),
